@@ -1,5 +1,4 @@
-// Shared state, canvas, core, economy, utilities
-
+// ===== Canvas / basics =====
 export const canvas = document.getElementById('game');
 export const ctx = canvas.getContext('2d');
 
@@ -12,14 +11,46 @@ export const cy = () => canvas.height / 2;
 export function dist(ax, ay, bx, by){ const dx=ax-bx, dy=ay-by; return Math.hypot(dx, dy); }
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-// Economy / upgrades
+// ===== Canonical game state (single source of truth) =====
 export let gold = 0;
+export let wave = 0;
+export let waveRunning = false;
+export let defeated = false;
+
+export let waveStatus = 'No wave';
+
+// Upgrades / economy
 export const upgrades = { dmg: 0, rof: 0, range: 0 };
 const baseCosts = { dmg: 20, rof: 20, range: 20 };
 const costScale = 1.5;
 export function cost(line){ return Math.floor(baseCosts[line] * Math.pow(costScale, upgrades[line])); }
 
-// Core (tower)
+// Setters so other modules can safely mutate state.js variables
+export function setGold(v){ gold = v; }
+export function setWave(v){ wave = v; }
+export function setWaveRunning(v){ waveRunning = v; }
+export function setDefeatedFlag(v){ defeated = v; }
+export function setWaveStatus(text){ waveStatus = text; notifySubscribers(); }
+
+// ===== Pub/Sub for UI (Vue) =====
+const subscribers = new Set();
+export function subscribe(cb){ subscribers.add(cb); return () => subscribers.delete(cb); }
+
+// notifySubscribers can accept a prebuilt snapshot (preferred),
+// or build a minimal one if none is provided.
+export function notifySubscribers(snapshot){
+  const snap = snapshot ?? {
+    wave, waveRunning, defeated,
+    coreHP: core.hp,
+    gold,
+    costs: { dmg: cost('dmg'), rof: cost('rof'), range: cost('range') },
+    cd: { nova: 0, frost: 0 }, // main.js will send real values
+    waveStatus,
+  };
+  subscribers.forEach(fn => fn(snap));
+}
+
+// ===== Core (tower) =====
 export const core = {
   x: cx, y: cy, radius: 24,
   baseDamage: 25, baseFireRate: 1.2, baseRange: 180,
@@ -45,54 +76,15 @@ export const core = {
 };
 core.applyUpgrades();
 
-// Game-wide arrays/flags
+// ===== Collections =====
 export const enemies = [];
 export const projectiles = [];
 export const effects = [];
-
-export let wave = 0;
-export let waveRunning = false;
-export let defeated = false;
 export const activeSpawners = new Set();
 
-export function setDefeated() {
-  defeated = true;
-  waveRunning = false;
+// Defeat helper
+export function setDefeated(){
+  setDefeatedFlag(true);
+  setWaveRunning(false);
   activeSpawners.clear();
-}
-
-// UI refs (kept central so modules can update UI cleanly)
-export const ui = {
-  enemyCountEl: document.getElementById('enemyCount'),
-  waveNumEl:    document.getElementById('waveNum'),
-  waveStatusEl: document.getElementById('waveStatus'),
-  coreHPEl:     document.getElementById('coreHP'),
-  goldAmtEl:    document.getElementById('goldAmt'),
-  costDmgEl:    document.getElementById('costDmg'),
-  costRofEl:    document.getElementById('costRof'),
-  costRangeEl:  document.getElementById('costRange'),
-  buyDmgBtn:    document.getElementById('buyDmg'),
-  buyRofBtn:    document.getElementById('buyRof'),
-  buyRangeBtn:  document.getElementById('buyRange'),
-  spawnLeftBtn: document.getElementById('spawnLeft'),
-  spawnRightBtn:document.getElementById('spawnRight'),
-  startWaveBtn: document.getElementById('startWave'),
-  resetBtn:     document.getElementById('resetRun'),
-  castNovaBtn:  document.getElementById('castNova'),
-  novaCDEl:     document.getElementById('novaCD'),
-  castFrostBtn: document.getElementById('castFrost'),
-  frostCDEl:    document.getElementById('frostCD'),
-};
-
-export function setWaveStatus(t){ ui.waveStatusEl.textContent = t; }
-export function refreshEconomyUI() {
-  ui.enemyCountEl.textContent = enemies.length;
-  ui.coreHPEl.textContent = Math.ceil(core.hp);
-  ui.goldAmtEl.textContent = gold;
-  ui.buyDmgBtn.disabled   = gold < cost('dmg');
-  ui.buyRofBtn.disabled   = gold < cost('rof');
-  ui.buyRangeBtn.disabled = gold < cost('range');
-  ui.costDmgEl.textContent   = cost('dmg');
-  ui.costRofEl.textContent   = cost('rof');
-  ui.costRangeEl.textContent = cost('range');
 }

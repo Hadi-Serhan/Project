@@ -1,5 +1,5 @@
 // src/ui/vue-app.js
-const { createApp, reactive, onMounted, onBeforeUnmount } = Vue;
+const { createApp, reactive, onMounted, onBeforeUnmount, toRefs } = Vue;
 
 const App = {
   setup() {
@@ -21,12 +21,12 @@ const App = {
     });
     onBeforeUnmount(() => { if (unsubscribe) unsubscribe(); });
 
-    function startWave(){ window.engine.actions.startWave(); }
-    function reset(){ window.engine.actions.reset(); }
-    function buy(line){ window.engine.actions.buy(line); }
-    function cast(which){ window.engine.actions.cast(which); }
+    const startWave = () => window.engine.actions.startWave();
+    const reset     = () => window.engine.actions.reset();
+    const buy       = (line) => window.engine.actions.buy(line);
+    const cast      = (which) => window.engine.actions.cast(which);
 
-    return { ...Vue.toRefs(s), startWave, reset, buy, cast };
+    return { ...toRefs(s), startWave, reset, buy, cast };
   }
 };
 
