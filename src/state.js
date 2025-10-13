@@ -19,6 +19,16 @@ export let defeated = false;
 
 export let waveStatus = 'No wave';
 
+// Engine flags
+export let paused = false;   
+export let timeScale = 1.0;
+export let autoStart = false;
+
+// Setters
+export function setPaused(v){ paused = !!v; notifySubscribers(); }
+export function setTimeScale(v){ timeScale = Math.max(0, v|0); notifySubscribers(); }
+export function setAutoStart(v){ autoStart = !!v; notifySubscribers(); }
+
 // Upgrades / economy
 export const upgrades = { dmg: 0, rof: 0, range: 0 };
 const baseCosts = { dmg: 20, rof: 20, range: 20 };
@@ -46,6 +56,7 @@ export function notifySubscribers(snapshot){
     costs: { dmg: cost('dmg'), rof: cost('rof'), range: cost('range') },
     cd: { nova: 0, frost: 0 }, // main.js will send real values
     waveStatus,
+    paused, timeScale, autoStart,
   };
   subscribers.forEach(fn => fn(snap));
 }

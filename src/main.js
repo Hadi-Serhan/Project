@@ -2,13 +2,14 @@ import {
   canvas, ctx, cx, cy, dist, clamp,
   core, enemies, projectiles, effects,
   upgrades, cost,
-  activeSpawners,
   // state vars
   gold, wave, waveRunning, defeated, waveStatus,
   // setters
   setGold, setWave, setWaveRunning, setDefeatedFlag, setWaveStatus,
   // pub/sub
-  subscribe, notifySubscribers
+  subscribe, notifySubscribers,
+  // run controls
+  paused, timeScale, autoStart, setPaused, setTimeScale, setAutoStart
 } from './state.js';
 
 import { ENEMY_TYPES, waveRecipe } from './content.js';
@@ -16,37 +17,35 @@ import { nova, frost } from './abilities.js';
 
 // -------------------- Local "view" of state (mirrors state.js) --------------------
 const S = {
-  get gold()         { return gold; },
-  set gold(v)        { setGold(v); },
-  get wave()         { return wave; },
-  set wave(v)        { setWave(v); },
-  get waveRunning()  { return waveRunning; },
-  set waveRunning(v) { setWaveRunning(v); },
-  get defeated()     { return defeated; },
-  set defeated(v)    { setDefeatedFlag(v); },
-  get waveStatus()   { return waveStatus; },
-  set waveStatus(t)  { setWaveStatus(t); },
+  get gold()         { return gold; }, set gold(v) { setGold(v); },
+  get wave()         { return wave; }, set wave(v) { setWave(v); },
+  get waveRunning()  { return waveRunning; }, set waveRunning(v) { setWaveRunning(v); },
+  get defeated()     { return defeated; }, set defeated(v) { setDefeatedFlag(v); },
+  get waveStatus()   { return waveStatus; }, set waveStatus(t) { setWaveStatus(t); },
+  get paused()       { return paused; }, set paused(v) { setPaused(v); },
+  get timeScale()    { return timeScale; }, set timeScale(v) { setTimeScale(v); },
+  get autoStart()    { return autoStart; }, set autoStart(v) { setAutoStart(v); }
 };
 
-// -------------------- Save / Load (define BEFORE buildSnapshot) --------------------
+// -------------------- Save / Load --------------------
 const SAVE_KEY = 'mage-core:v1';
 
 function serialize() {
   return {
     wave: S.wave,
-    waveRunning: false,     // never resume mid-wave
-    defeated: false,        // never resume defeated
+    waveRunning: false,           // never resume mid-wave
+    defeated: false,              // never resume defeated
     gold: S.gold,
     coreHP: core.hp,
     upgrades: { ...upgrades },
     novaCD: nova.cdLeft,
     frostCD: frost.cdLeft,
     savedAt: Date.now(),
+    timeScale: S.timeScale,
+    autoStart: S.autoStart,
   };
 }
-function hasSave() {
-  try { return !!localStorage.getItem(SAVE_KEY); } catch { return false; }
-}
+function hasSave() { try { return !!localStorage.getItem(SAVE_KEY); } catch { return false; } }
 function saveGame() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(serialize()));
@@ -60,6 +59,8 @@ function applySnapshot(snap) {
   S.waveRunning = false;
   S.defeated = false;
   S.gold = snap.gold ?? 0;
+  S.timeScale = snap.timeScale ?? 1;
+  S.autoStart = !!(snap.autoStart ?? false);
 
   core.hp = Math.min(core.hpMax, snap.coreHP ?? core.hpMax);
 
@@ -74,7 +75,7 @@ function applySnapshot(snap) {
   enemies.length = 0;
   projectiles.length = 0;
   effects.length = 0;
-  activeSpawners.clear();
+  spawners.length = 0;           // stop any queued spawns
 
   setWaveStatus('Loaded ✅');
   notifySubscribers(buildSnapshot());
@@ -83,8 +84,7 @@ function loadGame() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return false;
-    const snap = JSON.parse(raw);
-    applySnapshot(snap);
+    applySnapshot(JSON.parse(raw));
     return true;
   } catch { return false; }
 }
@@ -115,9 +115,11 @@ function buildSnapshot(){
     waveStatus: S.waveStatus,
     hasSave: hasSave(),
     lastSaved,
+    paused: S.paused,
+    timeScale: S.timeScale,
+    autoStart: S.autoStart,
   };
 }
-
 
 // -------------------- Enemy factory --------------------
 function createEnemy(type='grunt', waveNum=1) {
@@ -184,30 +186,35 @@ function pickTarget(){
   return best;
 }
 
-// -------------------- Spawner --------------------
+// -------------------- Spawner (loop-driven) --------------------
+const spawners = []; // each: { type, remaining, cadence, timer }
+
 function spawnBatch(type, count, cadenceSec){
   if (S.defeated) return;
-  const key = `batch-${type}-${performance.now()}`;
-  activeSpawners.add(key);
-  let spawned = 0;
-  const timer = setInterval(() => {
-    if (S.defeated) { clearInterval(timer); activeSpawners.delete(key); return; }
-    enemies.push(createEnemy(type, S.wave));
-    if (++spawned >= count){ clearInterval(timer); activeSpawners.delete(key); }
-  }, cadenceSec*1000);
+  spawners.push({ type, remaining: count, cadence: cadenceSec, timer: 0 }); // spawn first immediately
 }
 
 // -------------------- Loop --------------------
 let last = performance.now();
 function loop(now){
-  const dt = Math.min((now - last)/1000, 0.05); last = now;
-  update(dt); draw(); requestAnimationFrame(loop);
+  let dt = Math.min((now - last)/1000, 0.05);
+  last = now;
+
+  // Apply pause / speed
+  if (S.paused) dt = 0;
+  else dt *= Math.max(1, S.timeScale);
+
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
 function update(dt){
+  // enemy updates
   for (const e of enemies) e.update(dt);
 
+  // core fire
   if (!S.defeated) {
     core._fireTimer -= dt;
     if (core._fireTimer <= 0) {
@@ -216,6 +223,19 @@ function update(dt){
     }
   }
 
+  // spawn tick
+  for (let i = spawners.length - 1; i >= 0; i--) {
+    const s = spawners[i];
+    s.timer -= dt;
+    while (s.timer <= 0 && s.remaining > 0) {
+      enemies.push(createEnemy(s.type, S.wave));
+      s.remaining--;
+      s.timer += s.cadence;
+    }
+    if (s.remaining <= 0) spawners.splice(i, 1);
+  }
+
+  // projectiles
   for (const p of projectiles) {
     if (!p.alive) continue;
     const t = enemies.find(e => e.id === p.targetId);
@@ -229,27 +249,33 @@ function update(dt){
   }
   for (let i=projectiles.length-1; i>=0; i--) if (!projectiles[i].alive) projectiles.splice(i,1);
 
+  // abilities / effects
   if (nova.cdLeft  > 0) nova.cdLeft  = Math.max(0, nova.cdLeft  - dt);
   if (frost.cdLeft > 0) frost.cdLeft = Math.max(0, frost.cdLeft - dt);
   for (let i=effects.length-1; i>=0; i--) { const keep = effects[i].draw?.(dt); if (!keep) effects.splice(i,1); }
 
+  // deaths / gold
   for (let i=enemies.length-1; i>=0; i--) {
     const e = enemies[i];
     if (e.hp <= 0) { S.gold = S.gold + e.goldOnDeath; enemies.splice(i,1); }
   }
 
+  // defeat
   if (!S.defeated && core.hp <= 0) {
     S.defeated = true;
     S.waveRunning = false;
-    activeSpawners.clear();
+    spawners.length = 0;                  // stop any future spawns
     setWaveStatus('Defeated ❌  (Press Reset)');
   }
 
-  if (!S.defeated && S.waveRunning && activeSpawners.size === 0 && enemies.length === 0){
-    S.waveRunning = false; setWaveStatus('Cleared ✅');
+  // wave end
+  if (!S.defeated && S.waveRunning && spawners.length === 0 && enemies.length === 0){
+    S.waveRunning = false;
+    setWaveStatus('Cleared ✅');
+    if (S.autoStart) startWave();
   }
 
-  // Push snapshot to Vue
+  // push snapshot to Vue
   notifySubscribers(buildSnapshot());
 }
 
@@ -279,6 +305,7 @@ function startWave() {
 function resetGame() {
   enemies.length = 0; projectiles.length = 0; effects.length = 0;
   frost.zones.length = 0; nova.cdLeft = 0; frost.cdLeft = 0;
+  spawners.length = 0;                               // clear queued spawns
   S.wave = 0; S.waveRunning = false; S.defeated = false;
   core.hp = core.hpMax;
   S.gold = 0;
@@ -323,6 +350,9 @@ window.engine = {
     wipeSave: wipeSave,
     saveNow: saveGame,
     hasSave: hasSave,
+    setPaused: (v) => { S.paused = !!v; },
+    setSpeed: (n) => { S.timeScale = Math.max(1, n|0); },
+    setAutoStart: (v) => { S.autoStart = !!v; },
   }
 };
 

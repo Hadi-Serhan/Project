@@ -11,6 +11,9 @@ const App = {
       waveStatus: 'No wave',
       hasSave: false,
       lastSaved: null,
+      paused: false,
+      timeScale: 1,
+      autoStart: false,
     });
 
     let unsubscribe = null;
@@ -30,6 +33,9 @@ const App = {
     const saveNow   = () => window.engine.actions.saveNow && window.engine.actions.saveNow();
     const loadSave  = () => window.engine.actions.loadSave && window.engine.actions.loadSave();
     const wipeSave  = () => window.engine.actions.wipeSave && window.engine.actions.wipeSave();
+    const setPaused = (v) => window.engine.actions.setPaused && window.engine.actions.setPaused(v);
+    const setSpeed  = (n) => window.engine.actions.setSpeed && window.engine.actions.setSpeed(n);
+    const setAutoStart = (v) => window.engine.actions.setAutoStart && window.engine.actions.setAutoStart(v);
 
     const lastSavedLabel = computed(() => {
       if (!s.lastSaved) return '—';
@@ -38,7 +44,8 @@ const App = {
     });
 
 
-    return { ...toRefs(s), startWave, reset, buy, cast, saveNow, loadSave, wipeSave, lastSavedLabel};
+    return { ...toRefs(s), startWave, reset, buy, cast, saveNow, loadSave, wipeSave, lastSavedLabel,
+      setPaused, setSpeed, setAutoStart};
   }
 };
 

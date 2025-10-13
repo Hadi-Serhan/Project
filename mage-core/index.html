@@ -48,6 +48,20 @@
       <span>CD: {{ cd.frost > 0 ? cd.frost.toFixed(1)+'s' : 'ready' }}</span>
     </div>
 
+    <div class="row" style="margin-top:10px;"><strong>Run</strong></div>
+    <div class="row">
+      <button @click="setPaused(!paused)">{{ paused ? 'Resume' : 'Pause' }}</button>
+      <span class="pill">Speed:</span>
+      <button @click="setSpeed(1)" :class="{active: timeScale===1}">1×</button>
+      <button @click="setSpeed(2)" :class="{active: timeScale===2}">2×</button>
+      <button @click="setSpeed(3)" :class="{active: timeScale===3}">3×</button>
+      <label style="margin-left:8px;">
+        <input type="checkbox" :checked="autoStart" @change="setAutoStart($event.target.checked)">
+        Auto-start next wave
+      </label>
+    </div>
+
+
     <div class="row" style="margin-top:6px;">
       <button @click="saveNow">Save Now</button>
       <button @click="loadSave" :disabled="!hasSave">Load Save</button>
