@@ -12,6 +12,7 @@ import {
   paused, timeScale, autoStart, setPaused, setTimeScale, setAutoStart
 } from './state.js';
 
+import Engine from './engine.js';
 import { ENEMY_TYPES, waveRecipe } from './content.js';
 import { nova, frost } from './abilities.js';
 
@@ -27,14 +28,23 @@ const S = {
   get autoStart()    { return autoStart; }, set autoStart(v) { setAutoStart(v); }
 };
 
+// ---- Register current content into the Engine registry (mod-ready) ----
+for (const [id, def] of Object.entries(ENEMY_TYPES)) {
+  Engine.registerEnemyType(id, def);
+}
+
+// Let Engine change gold/core safely
+Engine.setGoldSink((amt) => { S.gold = Math.max(0, (S.gold|0) + (amt|0)); });
+Engine.setCoreMutator((fn) => { fn(core); });
+
 // -------------------- Save / Load --------------------
 const SAVE_KEY = 'mage-core:v1';
 
 function serialize() {
   return {
     wave: S.wave,
-    waveRunning: false,           // never resume mid-wave
-    defeated: false,              // never resume defeated
+    waveRunning: false,
+    defeated: false,
     gold: S.gold,
     coreHP: core.hp,
     upgrades: { ...upgrades },
@@ -43,6 +53,7 @@ function serialize() {
     savedAt: Date.now(),
     timeScale: S.timeScale,
     autoStart: S.autoStart,
+    mods: [], // reserve for future
   };
 }
 function hasSave() { try { return !!localStorage.getItem(SAVE_KEY); } catch { return false; } }
@@ -75,7 +86,7 @@ function applySnapshot(snap) {
   enemies.length = 0;
   projectiles.length = 0;
   effects.length = 0;
-  spawners.length = 0;           // stop any queued spawns
+  spawners.length = 0;
 
   setWaveStatus('Loaded ✅');
   notifySubscribers(buildSnapshot());
@@ -93,7 +104,6 @@ function wipeSave() {
   setWaveStatus('Save wiped 🗑️');
   notifySubscribers(buildSnapshot());
 }
-// autosave every 5s
 setInterval(saveGame, 5000);
 
 // -------------------- Snapshot for Vue --------------------
@@ -121,9 +131,8 @@ function buildSnapshot(){
   };
 }
 
-// -------------------- Small FX helpers --------------------
+// -------------------- FX helpers --------------------
 function makeFloatText(x, y, text, color='#ffd166') {
-  // A simple rising/fading number
   return {
     t: 0, dur: 0.8, x, y, vy: -36,
     draw(dt){
@@ -151,21 +160,30 @@ function coreTookDamage(amount){
   effects.push(makeFloatText(core.x(), core.y() - 28, `-${amount}`, '#ff6b6b'));
 }
 
-// -------------------- Enemy factory --------------------
-function createEnemy(type='grunt', waveNum=1) {
-  const tpl = ENEMY_TYPES[type] || ENEMY_TYPES.grunt;
-  const angle = Math.random() * Math.PI * 2;
+// -------------------- Enemy factory (provided to Engine) --------------------
+Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
+  const angle = Engine.rng() * Math.PI * 2;
   const spawnR = Math.min(canvas.width, canvas.height) * 0.45;
   const scale = 1 + waveNum * 0.18;
-  const hpMax = Math.round(tpl.hp * scale);
-  const goldOnDeath = Math.ceil((tpl.baseGold || 6) * (0.6 + waveNum * 0.2));
+  const hpMax = Math.round((def.hp ?? 20) * scale);
+  const goldOnDeath = Math.ceil((def.baseGold ?? 6) * (0.6 + waveNum * 0.2));
+
   return {
     id: Math.random().toString(36).slice(2),
-    type, angle, dist: spawnR,
-    speed: tpl.speed, radius: tpl.radius, color: tpl.color,
-    hpMax, hp: hpMax, state: 'advancing',
-    coreDamage: tpl.coreDamage, attackPeriod: tpl.attackPeriod, attackTimer: 0,
-    goldOnDeath, boss: !!tpl.boss,
+    type: def.id || 'enemy',
+    angle,
+    dist: spawnR,
+    speed: def.speed,
+    radius: def.radius,
+    color: def.color,
+    hpMax, hp: hpMax,
+    state: 'advancing',
+    coreDamage: def.coreDamage,
+    attackPeriod: def.attackPeriod,
+    attackTimer: 0,
+    goldOnDeath,
+    boss: !!def.boss,
+    ...overrides,
     get pos(){
       const dx = Math.cos(this.angle), dy = Math.sin(this.angle);
       return { x: cx() + dx * this.dist, y: cy() + dy * this.dist };
@@ -183,7 +201,8 @@ function createEnemy(type='grunt', waveNum=1) {
         this.attackTimer -= dt;
         if (this.attackTimer <= 0) {
           core.hp = Math.max(0, core.hp - this.coreDamage);
-          coreTookDamage(this.coreDamage);               // <— pop red number at core
+          coreTookDamage(this.coreDamage);
+          Engine.emit('core:hit', { amount: this.coreDamage, by: this });
           this.attackTimer += this.attackPeriod * atkMul;
         }
       }
@@ -204,7 +223,7 @@ function createEnemy(type='grunt', waveNum=1) {
       ctx.fillStyle = '#7fdb6a'; ctx.fillRect(x, y, clamp((this.hp/this.hpMax),0,1)*w, h);
     }
   };
-}
+});
 
 // -------------------- Projectiles --------------------
 function createProjectile(targetId){ return { x: core.x(), y: core.y(), speed: 380, targetId, alive: true }; }
@@ -219,10 +238,9 @@ function pickTarget(){
 
 // -------------------- Spawner (loop-driven) --------------------
 const spawners = []; // each: { type, remaining, cadence, timer }
-
 function spawnBatch(type, count, cadenceSec){
   if (S.defeated) return;
-  spawners.push({ type, remaining: count, cadence: cadenceSec, timer: 0 }); // spawn first immediately
+  spawners.push({ type, remaining: count, cadence: cadenceSec, timer: 0 });
 }
 
 // -------------------- Loop --------------------
@@ -230,14 +248,8 @@ let last = performance.now();
 function loop(now){
   let dt = Math.min((now - last)/1000, 0.05);
   last = now;
-
-  // Apply pause / speed
-  if (S.paused) dt = 0;
-  else dt *= Math.max(1, S.timeScale);
-
-  update(dt);
-  draw();
-  requestAnimationFrame(loop);
+  if (S.paused) dt = 0; else dt *= Math.max(1, S.timeScale);
+  update(dt); draw(); requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
@@ -254,12 +266,12 @@ function update(dt){
     }
   }
 
-  // spawn tick
+  // spawners
   for (let i = spawners.length - 1; i >= 0; i--) {
     const s = spawners[i];
     s.timer -= dt;
     while (s.timer <= 0 && s.remaining > 0) {
-      enemies.push(createEnemy(s.type, S.wave));
+      enemies.push(Engine.spawnEnemy(s.type, S.wave));
       s.remaining--;
       s.timer += s.cadence;
     }
@@ -273,7 +285,7 @@ function update(dt){
     if (!t) { p.alive = false; continue; }
     const tp = t.pos, d = dist(p.x, p.y, tp.x, tp.y);
     if (d < 12) {
-      applyDamage(t, core.damage);       // <— use helper to spawn yellow number
+      applyDamage(t, core.damage);
       p.alive = false;
     } else {
       const dx = (tp.x - p.x) / d, dy = (tp.y - p.y) / d;
@@ -290,14 +302,18 @@ function update(dt){
   // deaths / gold
   for (let i=enemies.length-1; i>=0; i--) {
     const e = enemies[i];
-    if (e.hp <= 0) { S.gold = S.gold + e.goldOnDeath; enemies.splice(i,1); }
+    if (e.hp <= 0) {
+      Engine.addGold(e.goldOnDeath);
+      Engine.emit('enemy:death', { enemy: e, wave: S.wave });
+      enemies.splice(i,1);
+    }
   }
 
   // defeat
   if (!S.defeated && core.hp <= 0) {
     S.defeated = true;
     S.waveRunning = false;
-    spawners.length = 0;                  // stop any future spawns
+    spawners.length = 0;
     setWaveStatus('Defeated ❌  (Press Reset)');
   }
 
@@ -305,10 +321,10 @@ function update(dt){
   if (!S.defeated && S.waveRunning && spawners.length === 0 && enemies.length === 0){
     S.waveRunning = false;
     setWaveStatus('Cleared ✅');
+    Engine.emit('wave:end', { wave: S.wave });
     if (S.autoStart) startWave();
   }
 
-  // push snapshot to Vue
   notifySubscribers(buildSnapshot());
 }
 
@@ -318,7 +334,7 @@ function draw(){
   frost.drawOverlay();
   for (const e of enemies) e.draw();
 
-  // boss HP bar (if any boss alive)
+  // boss bar
   const boss = enemies.find(e => e.boss);
   if (boss) {
     const frac = clamp(boss.hp / boss.hpMax, 0, 1);
@@ -330,11 +346,9 @@ function draw(){
     ctx.textAlign = 'center'; ctx.fillText('BOSS', canvas.width/2, y - 2);
   }
 
-  // projectiles
   ctx.fillStyle = '#fff';
   for (const p of projectiles) { ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); }
 
-  // HUD
   ctx.fillStyle='#9fb'; ctx.font='14px system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.fillText(`Enemies: ${enemies.length}`, 12, 20);
@@ -346,6 +360,7 @@ function startWave() {
   if (S.waveRunning || S.defeated) return;
   S.wave += 1;
   S.waveRunning = true;
+  Engine.emit('wave:start', { wave: S.wave });
   const baseCadence = Math.max(0.25, 0.55 - S.wave * 0.02);
   const packs = waveRecipe(S.wave);
   if (packs.some(p => p.boss)) setWaveStatus('Boss!'); else setWaveStatus('Running…');
@@ -355,7 +370,7 @@ function startWave() {
 function resetGame() {
   enemies.length = 0; projectiles.length = 0; effects.length = 0;
   frost.zones.length = 0; nova.cdLeft = 0; frost.cdLeft = 0;
-  spawners.length = 0;                               // clear queued spawns
+  spawners.length = 0;
   S.wave = 0; S.waveRunning = false; S.defeated = false;
   core.hp = core.hpMax;
   S.gold = 0;
