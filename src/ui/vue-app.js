@@ -1,5 +1,5 @@
 // src/ui/vue-app.js
-const { createApp, reactive, onMounted, onBeforeUnmount, toRefs } = Vue;
+const { createApp, reactive, onMounted, onBeforeUnmount, toRefs, computed } = Vue;
 
 const App = {
   setup() {
@@ -9,6 +9,8 @@ const App = {
       costs: { dmg:0, rof:0, range:0 },
       cd: { nova:0, frost:0 },
       waveStatus: 'No wave',
+      hasSave: false,
+      lastSaved: null,
     });
 
     let unsubscribe = null;
@@ -25,8 +27,18 @@ const App = {
     const reset     = () => window.engine.actions.reset();
     const buy       = (line) => window.engine.actions.buy(line);
     const cast      = (which) => window.engine.actions.cast(which);
+    const saveNow   = () => window.engine.actions.saveNow && window.engine.actions.saveNow();
+    const loadSave  = () => window.engine.actions.loadSave && window.engine.actions.loadSave();
+    const wipeSave  = () => window.engine.actions.wipeSave && window.engine.actions.wipeSave();
 
-    return { ...toRefs(s), startWave, reset, buy, cast };
+    const lastSavedLabel = computed(() => {
+      if (!s.lastSaved) return '—';
+      const d = new Date(s.lastSaved);
+      return d.toLocaleTimeString();
+    });
+
+
+    return { ...toRefs(s), startWave, reset, buy, cast, saveNow, loadSave, wipeSave, lastSavedLabel};
   }
 };
 

@@ -28,8 +28,82 @@ const S = {
   set waveStatus(t)  { setWaveStatus(t); },
 };
 
-// Build a full snapshot for Vue every frame
+// -------------------- Save / Load (define BEFORE buildSnapshot) --------------------
+const SAVE_KEY = 'mage-core:v1';
+
+function serialize() {
+  return {
+    wave: S.wave,
+    waveRunning: false,     // never resume mid-wave
+    defeated: false,        // never resume defeated
+    gold: S.gold,
+    coreHP: core.hp,
+    upgrades: { ...upgrades },
+    novaCD: nova.cdLeft,
+    frostCD: frost.cdLeft,
+    savedAt: Date.now(),
+  };
+}
+function hasSave() {
+  try { return !!localStorage.getItem(SAVE_KEY); } catch { return false; }
+}
+function saveGame() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(serialize()));
+    setWaveStatus('Game saved 💾');
+    setTimeout(() => setWaveStatus('Running…'), 800);
+    notifySubscribers(buildSnapshot());
+  } catch {}
+}
+function applySnapshot(snap) {
+  S.wave = snap.wave ?? 0;
+  S.waveRunning = false;
+  S.defeated = false;
+  S.gold = snap.gold ?? 0;
+
+  core.hp = Math.min(core.hpMax, snap.coreHP ?? core.hpMax);
+
+  upgrades.dmg   = snap.upgrades?.dmg   ?? 0;
+  upgrades.rof   = snap.upgrades?.rof   ?? 0;
+  upgrades.range = snap.upgrades?.range ?? 0;
+  core.applyUpgrades();
+
+  nova.cdLeft  = snap.novaCD  ?? 0;
+  frost.cdLeft = snap.frostCD ?? 0;
+
+  enemies.length = 0;
+  projectiles.length = 0;
+  effects.length = 0;
+  activeSpawners.clear();
+
+  setWaveStatus('Loaded ✅');
+  notifySubscribers(buildSnapshot());
+}
+function loadGame() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    const snap = JSON.parse(raw);
+    applySnapshot(snap);
+    return true;
+  } catch { return false; }
+}
+function wipeSave() {
+  try { localStorage.removeItem(SAVE_KEY); } catch {}
+  setWaveStatus('Save wiped 🗑️');
+  notifySubscribers(buildSnapshot());
+}
+// autosave every 5s
+setInterval(saveGame, 5000);
+
+// -------------------- Snapshot for Vue --------------------
 function buildSnapshot(){
+  let lastSaved = null;
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) lastSaved = (JSON.parse(raw).savedAt) || null;
+  } catch {}
+
   return {
     wave: S.wave,
     waveRunning: S.waveRunning,
@@ -39,8 +113,11 @@ function buildSnapshot(){
     costs: { dmg: cost('dmg'), rof: cost('rof'), range: cost('range') },
     cd: { nova: nova.cdLeft, frost: frost.cdLeft },
     waveStatus: S.waveStatus,
+    hasSave: hasSave(),
+    lastSaved,
   };
 }
+
 
 // -------------------- Enemy factory --------------------
 function createEnemy(type='grunt', waveNum=1) {
@@ -208,6 +285,7 @@ function resetGame() {
   upgrades.dmg = upgrades.rof = upgrades.range = 0;
   core.applyUpgrades();
   setWaveStatus('No wave');
+  saveGame();
   notifySubscribers(buildSnapshot());
 }
 
@@ -216,12 +294,13 @@ function buyUpgrade(type) {
   if (S.gold < c) return;
   S.gold = S.gold - c;
   upgrades[type]++; core.applyUpgrades();
+  saveGame();
   notifySubscribers(buildSnapshot());
 }
 
 function castAbility(which) {
-  if (which === 'nova'  && nova.cast())  notifySubscribers(buildSnapshot());
-  if (which === 'frost' && frost.cast()) notifySubscribers(buildSnapshot());
+  if (which === 'nova'  && nova.cast())  { saveGame(); notifySubscribers(buildSnapshot()); }
+  if (which === 'frost' && frost.cast()) { saveGame(); notifySubscribers(buildSnapshot()); }
 }
 
 // Keybindings
@@ -240,9 +319,15 @@ window.engine = {
     reset: resetGame,
     buy: buyUpgrade,
     cast: castAbility,
+    loadSave: loadGame,
+    wipeSave: wipeSave,
+    saveNow: saveGame,
+    hasSave: hasSave,
   }
 };
 
 // initial
-setWaveStatus('No wave');
-notifySubscribers(buildSnapshot());
+if (!loadGame()){
+  setWaveStatus('No wave');
+  notifySubscribers(buildSnapshot());
+}

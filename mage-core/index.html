@@ -47,7 +47,17 @@
       <button @click="cast('frost')" :disabled="cd.frost > 0">Frost Dome (W)</button>
       <span>CD: {{ cd.frost > 0 ? cd.frost.toFixed(1)+'s' : 'ready' }}</span>
     </div>
+
+    <div class="row" style="margin-top:6px;">
+      <button @click="saveNow">Save Now</button>
+      <button @click="loadSave" :disabled="!hasSave">Load Save</button>
+      <button @click="wipeSave" :disabled="!hasSave">Wipe Save</button>
+      <span class="pill">Last saved: {{ lastSavedLabel }}</span>
+      <span class="pill">{{ waveStatus }}</span>
+    </div>
   </div>
+
+
 
   <!-- Keep old panel in DOM (hidden) so main.js can still reference its IDs -->
   <div id="panel" style="display:none">
@@ -57,20 +67,6 @@
 
 <!-- Vue -->
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-
-<!-- Engine state -->
-<script>
-window.engine = {
-  getSnapshot: () => ({}),  // Will be replaced by main.js
-  subscribe: () => () => {},  // Will be replaced by main.js
-  actions: {
-    startWave: () => {},
-    reset: () => {},
-    buy: () => {},
-    cast: () => {}
-  }
-};
-</script>
 
 <!-- Engine / modules (note the ../ since index.html is in mage-core/) -->
 <script type="module" src="../src/main.js"></script>
