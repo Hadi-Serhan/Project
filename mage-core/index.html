@@ -10,79 +10,116 @@
 <div id="wrap">
   <canvas id="game"></canvas>
 
-  <!-- Vue UI -->
-  <div id="app" style="margin-top:8px;">
-    <div class="row">
-      <button @click="startWave" :disabled="waveRunning || defeated">Start Wave</button>
-      <span class="pill">Wave: {{ wave }}</span>
-      <span class="pill">Core HP: {{ coreHP }}</span>
-      <span class="pill">Gold: {{ gold }}</span>
-      <span class="pill">{{ waveStatus }}</span>
+  <!-- Vue UI (everything reactive lives inside #app) -->
+  <div id="app" class="ui">
+
+    <!-- Top HUD (now inside #app so {{ }} works) -->
+    <div class="hud">
+      <div class="hud-group">
+        <span class="tag">Wave</span>
+        <span class="hud-val">{{ wave }}</span>
+      </div>
+      <div class="hud-group">
+        <span class="tag">Core HP</span>
+        <span class="hud-val">{{ coreHP }}</span>
+      </div>
+      <div class="hud-group">
+        <span class="tag">Gold</span>
+        <span class="hud-val">{{ gold }}</span>
+      </div>
+      <div class="hud-status">{{ waveStatus }}</div>
     </div>
 
-    <div class="row">
-      <button @click="reset">Reset</button>
+    <!-- Controls -->
+    <div class="card controls">
+      <div class="row wrap">
+        <button class="btn primary"
+                @click="startWave" :disabled="waveRunning || defeated">Start Wave</button>
+
+        <button class="btn"
+                :class="{warning: paused}"
+                @click="togglePause">{{ paused ? 'Resume' : 'Pause' }}</button>
+
+        <label class="control">
+          <span class="lbl">Speed</span>
+          <select v-model.number="timeScale" @change="setSpeed(timeScale)">
+            <option :value="1">x1</option>
+            <option :value="2">x2</option>
+            <option :value="3">x3</option>
+            <option :value="4">x4</option>
+          </select>
+        </label>
+
+        <label class="control chk">
+          <input type="checkbox" v-model="autoStart" @change="setAutoStart(autoStart)" />
+          <span>Auto-start next wave</span>
+        </label>
+
+        <button class="btn ghost" @click="reset">Reset</button>
+      </div>
+
+      <div class="row wrap">
+        <button class="btn ghost" @click="saveNow">Save</button>
+        <button class="btn ghost" @click="loadSave" :disabled="!hasSave">Load</button>
+        <button class="btn ghost danger" @click="wipeSave" :disabled="!hasSave">Wipe</button>
+        <span class="meta">Last saved: {{ lastSavedLabel }}</span>
+      </div>
     </div>
 
-    <div class="row" style="margin-top:6px;"><strong>Upgrades</strong></div>
-    <div class="row">
-      <button @click="buy('dmg')" :disabled="gold < costs.dmg">+ Damage</button>
-      <span>Cost: {{ costs.dmg }}</span>
-    </div>
-    <div class="row">
-      <button @click="buy('rof')" :disabled="gold < costs.rof">+ Fire Rate</button>
-      <span>Cost: {{ costs.rof }}</span>
-    </div>
-    <div class="row">
-      <button @click="buy('range')" :disabled="gold < costs.range">+ Range</button>
-      <span>Cost: {{ costs.range }}</span>
-    </div>
-
-    <div class="row" style="margin-top:10px;"><strong>Abilities</strong></div>
-    <div class="row">
-      <button @click="cast('nova')" :disabled="cd.nova > 0">Fire Nova (Q)</button>
-      <span>CD: {{ cd.nova > 0 ? cd.nova.toFixed(1)+'s' : 'ready' }}</span>
-    </div>
-    <div class="row">
-      <button @click="cast('frost')" :disabled="cd.frost > 0">Frost Dome (W)</button>
-      <span>CD: {{ cd.frost > 0 ? cd.frost.toFixed(1)+'s' : 'ready' }}</span>
-    </div>
-
-    <div class="row" style="margin-top:10px;"><strong>Run</strong></div>
-    <div class="row">
-      <button @click="setPaused(!paused)">{{ paused ? 'Resume' : 'Pause' }}</button>
-      <span class="pill">Speed:</span>
-      <button @click="setSpeed(1)" :class="{active: timeScale===1}">1×</button>
-      <button @click="setSpeed(2)" :class="{active: timeScale===2}">2×</button>
-      <button @click="setSpeed(3)" :class="{active: timeScale===3}">3×</button>
-      <label style="margin-left:8px;">
-        <input type="checkbox" :checked="autoStart" @change="setAutoStart($event.target.checked)">
-        Auto-start next wave
-      </label>
+    <!-- Upgrades -->
+    <div class="card">
+      <h3>Upgrades</h3>
+      <div class="grid3">
+        <div class="upgrade">
+          <div class="u-title">Damage</div>
+          <button class="btn block"
+                  @click="buy('dmg')"
+                  :disabled="gold < costs.dmg">Buy ({{ costs.dmg }})</button>
+        </div>
+        <div class="upgrade">
+          <div class="u-title">Fire Rate</div>
+          <button class="btn block"
+                  @click="buy('rof')"
+                  :disabled="gold < costs.rof">Buy ({{ costs.rof }})</button>
+        </div>
+        <div class="upgrade">
+          <div class="u-title">Range</div>
+          <button class="btn block"
+                  @click="buy('range')"
+                  :disabled="gold < costs.range">Buy ({{ costs.range }})</button>
+        </div>
+      </div>
     </div>
 
+    <!-- Abilities -->
+    <div class="card">
+      <h3>Abilities</h3>
+      <div class="row wrap">
+        <button class="btn ability"
+                :class="{cooling: cd.nova > 0}"
+                @click="cast('nova')"
+                :disabled="cd.nova > 0">
+          Fire Nova <span class="hint">(Q)</span>
+          <span class="cooldown" v-if="cd.nova > 0">{{ cd.nova.toFixed(1) }}s</span>
+        </button>
 
-    <div class="row" style="margin-top:6px;">
-      <button @click="saveNow">Save Now</button>
-      <button @click="loadSave" :disabled="!hasSave">Load Save</button>
-      <button @click="wipeSave" :disabled="!hasSave">Wipe Save</button>
-      <span class="pill">Last saved: {{ lastSavedLabel }}</span>
-      <span class="pill">{{ waveStatus }}</span>
+        <button class="btn ability"
+                :class="{cooling: cd.frost > 0}"
+                @click="cast('frost')"
+                :disabled="cd.frost > 0">
+          Frost Dome <span class="hint">(W)</span>
+          <span class="cooldown" v-if="cd.frost > 0">{{ cd.frost.toFixed(1) }}s</span>
+        </button>
+      </div>
     </div>
-  </div>
 
-
-
-  <!-- Keep old panel in DOM (hidden) so main.js can still reference its IDs -->
-  <div id="panel" style="display:none">
-    <!-- your old buttons/labels live here unchanged -->
   </div>
 </div>
 
 <!-- Vue -->
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 
-<!-- Engine / modules (note the ../ since index.html is in mage-core/) -->
+<!-- Engine / modules -->
 <script type="module" src="../src/main.js"></script>
 <script type="module" src="../src/ui/vue-app.js"></script>
 </body>
