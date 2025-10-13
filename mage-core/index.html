@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mage Core</title>
+  <link rel="stylesheet" href="style.css">
+  <base href ="./">
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+
+  <div id="panel">
+    <h2 style="margin-top:0">Mage Core</h2>
+
+    <div class="row">
+      <button id="spawnLeft">Start Enemy (Left)</button>
+      <button id="spawnRight">Start Enemy (Right)</button>
+    </div>
+
+    <div class="row">
+      <button id="startWave">Start Wave</button>
+      <span class="pill">Wave: <span id="waveNum">0</span></span>
+      <span class="pill">Core HP: <span id="coreHP">100</span></span>
+      <span class="pill">Gold: <span id="goldAmt">0</span></span>
+      <span class="pill" id="waveStatus">No wave</span>
+    </div>
+
+    <div class="row">
+      <button id="resetRun">Reset</button>
+    </div>
+
+    <div class="row" style="margin-top:6px;"><strong>Upgrades</strong></div>
+    <div class="row">
+      <button id="buyDmg">+ Damage</button>
+      <span>Cost: <span id="costDmg">20</span></span>
+    </div>
+    <div class="row">
+      <button id="buyRof">+ Fire Rate</button>
+      <span>Cost: <span id="costRof">20</span></span>
+    </div>
+    <div class="row">
+      <button id="buyRange">+ Range</button>
+      <span>Cost: <span id="costRange">20</span></span>
+    </div>
+
+    <div class="row" style="margin-top:10px;"><strong>Ability</strong></div>
+    <div class="row">
+      <button id="castNova">Fire Nova (Q)</button>
+      <span>CD: <span id="novaCD">ready</span></span>
+    </div>
+
+    <div class="row">
+      <button id="castFrost">Frost Dome (W)</button>
+      <span>CD: <span id="frostCD">ready</span></span>
+    </div>
+
+    <div class="row">
+      <span>Enemies: <strong id="enemyCount">0</strong></span>
+    </div>
+  </div>
+</div>
+
+<!-- NO Vue script yet -->
+
+<!-- Engine / UI modules -->
+<script type="module">
+  import '../src/main.js';
+</script>
+</body>
+</html>
