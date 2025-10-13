@@ -121,6 +121,36 @@ function buildSnapshot(){
   };
 }
 
+// -------------------- Small FX helpers --------------------
+function makeFloatText(x, y, text, color='#ffd166') {
+  // A simple rising/fading number
+  return {
+    t: 0, dur: 0.8, x, y, vy: -36,
+    draw(dt){
+      this.t += dt;
+      const k = clamp(this.t/this.dur, 0, 1);
+      const alpha = 1 - k;
+      const yy = this.y + this.vy * this.t;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color;
+      ctx.font = 'bold 14px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(text, this.x, yy);
+      ctx.restore();
+      return this.t < this.dur;
+    }
+  };
+}
+function applyDamage(target, dmg){
+  target.hp -= dmg;
+  const p = target.pos;
+  effects.push(makeFloatText(p.x, p.y - target.radius - 12, Math.ceil(dmg).toString(), '#ffd166'));
+}
+function coreTookDamage(amount){
+  effects.push(makeFloatText(core.x(), core.y() - 28, `-${amount}`, '#ff6b6b'));
+}
+
 // -------------------- Enemy factory --------------------
 function createEnemy(type='grunt', waveNum=1) {
   const tpl = ENEMY_TYPES[type] || ENEMY_TYPES.grunt;
@@ -153,6 +183,7 @@ function createEnemy(type='grunt', waveNum=1) {
         this.attackTimer -= dt;
         if (this.attackTimer <= 0) {
           core.hp = Math.max(0, core.hp - this.coreDamage);
+          coreTookDamage(this.coreDamage);               // <— pop red number at core
           this.attackTimer += this.attackPeriod * atkMul;
         }
       }
@@ -241,8 +272,10 @@ function update(dt){
     const t = enemies.find(e => e.id === p.targetId);
     if (!t) { p.alive = false; continue; }
     const tp = t.pos, d = dist(p.x, p.y, tp.x, tp.y);
-    if (d < 12) { t.hp -= core.damage; p.alive = false; }
-    else {
+    if (d < 12) {
+      applyDamage(t, core.damage);       // <— use helper to spawn yellow number
+      p.alive = false;
+    } else {
       const dx = (tp.x - p.x) / d, dy = (tp.y - p.y) / d;
       p.x += dx * p.speed * dt; p.y += dy * p.speed * dt;
     }
@@ -284,9 +317,26 @@ function draw(){
   core.draw();
   frost.drawOverlay();
   for (const e of enemies) e.draw();
+
+  // boss HP bar (if any boss alive)
+  const boss = enemies.find(e => e.boss);
+  if (boss) {
+    const frac = clamp(boss.hp / boss.hpMax, 0, 1);
+    const w = canvas.width * 0.6, h = 10;
+    const x = (canvas.width - w)/2, y = 18;
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#e66'; ctx.fillRect(x, y, w*frac, h);
+    ctx.fillStyle = '#fff'; ctx.font='12px system-ui,sans-serif';
+    ctx.textAlign = 'center'; ctx.fillText('BOSS', canvas.width/2, y - 2);
+  }
+
+  // projectiles
   ctx.fillStyle = '#fff';
   for (const p of projectiles) { ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); }
+
+  // HUD
   ctx.fillStyle='#9fb'; ctx.font='14px system-ui, sans-serif';
+  ctx.textAlign = 'left';
   ctx.fillText(`Enemies: ${enemies.length}`, 12, 20);
   ctx.fillText(`Wave: ${S.wave}`, 12, 38);
 }
