@@ -15,8 +15,9 @@ import {
 import Engine from './engine.js';
 import { ENEMY_TYPES, waveRecipe } from './content.js';
 import { nova, frost } from './abilities.js';
+import { loadAssets, getImage, getFrames } from './assets.js';
 
-// -------------------- Local "view" of state (mirrors state.js) --------------------
+// -------------------- Local "view" of state --------------------
 const S = {
   get gold()         { return gold; }, set gold(v) { setGold(v); },
   get wave()         { return wave; }, set wave(v) { setWave(v); },
@@ -28,12 +29,68 @@ const S = {
   get autoStart()    { return autoStart; }, set autoStart(v) { setAutoStart(v); }
 };
 
-// ---- Register current content into the Engine registry (mod-ready) ----
+// ---- sprite sheet frame counts (inclusive end indexes you observed) ----
+const NECRO_WALK_LAST    = 22;
+const NECRO_ATTACK_LAST  = 11;
+const SKELE_RUN_LAST     = 11;
+const SKELE_ATTACK_LAST  = 11;
+const GOLEM_WALK_LAST    = 23;
+const GOLEM_ATTACK_LAST  = 11;
+const TROLL_WALK_LAST    = 9;
+const TROLL_ATTACK_LAST  = 9;
+
+// -------------------- Asset manifest (sequences) --------------------
+const ASSETS = {
+  // Projectiles/core fallback images (use if you have them)
+  // core:  'assets/core.png',
+  // bolt:  'assets/bolt.png',
+
+  // Troll (boss)
+  troll_walk:   { seq: { base: 'assets/troll/Walking/Troll_03_1_WALK_',   start: 0, end: TROLL_WALK_LAST,   pad: 3, ext: '.png' } },
+  troll_attack: { seq: { base: 'assets/troll/Slashing/Troll_03_1_ATTACK_',start: 0, end: TROLL_ATTACK_LAST, pad: 3, ext: '.png' } },
+
+  // Golem (tank)
+  golem_walk:   { seq: { base: 'assets/golem/Walking/0_Golem_Walking_',   start: 0, end: GOLEM_WALK_LAST,   pad: 3, ext: '.png' } },
+  golem_attack: { seq: { base: 'assets/golem/Slashing/0_Golem_Slashing_', start: 0, end: GOLEM_ATTACK_LAST, pad: 3, ext: '.png' } },
+
+  // Skeleton (fast)
+  skeleton_run:     { seq: { base: 'assets/skeleton/Running/0_Skeleton_Crusader_Running_',    start: 0, end: SKELE_RUN_LAST,    pad: 3, ext: '.png' } },
+  skeleton_attack:  { seq: { base: 'assets/skeleton/Slashing/0_Skeleton_Crusader_Slashing_', start: 0, end: SKELE_ATTACK_LAST, pad: 3, ext: '.png' } },
+
+  // Necromancer (grunt)
+  necro_walk:   { seq: { base: 'assets/necromancer/Walking/0_Necromancer_of_the_Shadow_Walking_', start: 0, end: NECRO_WALK_LAST,   pad: 3, ext: '.png' } },
+  necro_attack: { seq: { base: 'assets/necromancer/Slashing/0_Necromancer_of_the_Shadow_Slashing_', start: 0, end: NECRO_ATTACK_LAST, pad: 3, ext: '.png' } },
+};
+
+// -------------------- Per-type animation profiles --------------------
+const ANIM = {
+  grunt: {            // Necromancer
+    walk: 'necro_walk',   attack: 'necro_attack',
+    fpsWalk: 10,          fpsAtk: 12,
+    size: 56, face: 'right'
+  },
+  runner: {             // Skeleton
+    walk: 'skeleton_run', attack: 'skeleton_attack',
+    fpsWalk: 12,          fpsAtk: 12,
+    size: 52, face: 'right'
+  },
+  tank: {             // Golem
+    walk: 'golem_walk',   attack: 'golem_attack',
+    fpsWalk: 8,           fpsAtk: 10,
+    size: 64, face: 'right'
+  },
+  boss: {             // Troll
+    walk: 'troll_walk',   attack: 'troll_attack',
+    fpsWalk: 8,           fpsAtk: 10,
+    size: 84, face: 'right'
+  }
+};
+
+// ---- Register current content into the Engine registry ----
 for (const [id, def] of Object.entries(ENEMY_TYPES)) {
+  def.id = id; 
   Engine.registerEnemyType(id, def);
 }
-
-// Let Engine change gold/core safely
 Engine.setGoldSink((amt) => { S.gold = Math.max(0, (S.gold|0) + (amt|0)); });
 Engine.setCoreMutator((fn) => { fn(core); });
 
@@ -53,7 +110,7 @@ function serialize() {
     savedAt: Date.now(),
     timeScale: S.timeScale,
     autoStart: S.autoStart,
-    mods: [], // reserve for future
+    mods: [],
   };
 }
 function hasSave() { try { return !!localStorage.getItem(SAVE_KEY); } catch { return false; } }
@@ -160,6 +217,44 @@ function coreTookDamage(amount){
   effects.push(makeFloatText(core.x(), core.y() - 28, `-${amount}`, '#ff6b6b'));
 }
 
+// Sprite helper
+function drawSprite(img, x, y, size, flipX = false) {
+  const half = size / 2;
+  ctx.save();
+  ctx.translate(x, y);
+  if (flipX) ctx.scale(-1, 1);   // mirror horizontally
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(img, -half, -half, size, size);
+  ctx.restore();
+}
+
+
+
+function makeAnim(key, fps = 8, loop = true) {
+  const frames = getFrames(key) || (getImage(key) ? [getImage(key)] : null);
+  return {
+    key, frames, fps, loop,
+    t: 0, idx: 0,
+    update(dt) {
+      if (!this.frames || this.frames.length === 0) return;
+      this.t += dt;
+      const frameAdvance = Math.floor(this.t * this.fps);
+      if (frameAdvance > 0) {
+        this.t -= frameAdvance / this.fps;
+        if (this.loop) {
+          this.idx = (this.idx + frameAdvance) % this.frames.length;
+        } else {
+          this.idx = Math.min(this.idx + frameAdvance, this.frames.length - 1);
+        }
+      }
+    },
+    frame() {
+      return (this.frames && this.frames.length) ? this.frames[this.idx] : null;
+    },
+    reset() { this.t = 0; this.idx = 0; }
+  };
+}
+
 // -------------------- Enemy factory (provided to Engine) --------------------
 Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
   const angle = Engine.rng() * Math.PI * 2;
@@ -168,9 +263,12 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
   const hpMax = Math.round((def.hp ?? 20) * scale);
   const goldOnDeath = Math.ceil((def.baseGold ?? 6) * (0.6 + waveNum * 0.2));
 
+  const typeId = def.id || overrides.type || (def.boss ? 'boss' : 'enemy');
+  const profile = ANIM[def.boss ? 'boss' : typeId]; // boss uses boss profile
+
   return {
     id: Math.random().toString(36).slice(2),
-    type: def.id || 'enemy',
+    type: typeId,
     angle,
     dist: spawnR,
     speed: def.speed,
@@ -183,20 +281,42 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
     attackTimer: 0,
     goldOnDeath,
     boss: !!def.boss,
+
+    // Animation state (walk by default if profile exists)
+    anim: (profile && getFrames(profile.walk)) ? makeAnim(profile.walk, profile.fpsWalk, true) : null,
+
+    // attack switch guard
+    _switchedToAttack: false,
+
     ...overrides,
+
     get pos(){
       const dx = Math.cos(this.angle), dy = Math.sin(this.angle);
       return { x: cx() + dx * this.dist, y: cy() + dy * this.dist };
     },
+
+    _switchToAttack(){
+      if (this._switchedToAttack) return;
+      if (profile && getFrames(profile.attack)) {
+        this.anim = makeAnim(profile.attack, profile.fpsAtk, true);
+      }
+      this._switchedToAttack = true;
+    },
+
     update(dt){
       const p = this.pos;
       let slowFactor = 0;
       if (frost.isIn(p.x, p.y)) slowFactor = this.boss ? Math.min(frost.slow, 0.20) : frost.slow;
       const speedMul = 1 - slowFactor;
-      const atkMul = 1 / (1 - slowFactor);
+      const atkMul   = 1 / (1 - slowFactor);
+
       if (this.state === 'advancing') {
         this.dist = Math.max(0, this.dist - this.speed * speedMul * dt);
-        if (this.dist <= core.radius) { this.state = 'attacking'; this.attackTimer = 0; }
+        if (this.dist <= core.radius) {
+          this.state = 'attacking';
+          this.attackTimer = 0;
+          this._switchToAttack();
+        }
       } else {
         this.attackTimer -= dt;
         if (this.attackTimer <= 0) {
@@ -206,19 +326,48 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
           this.attackTimer += this.attackPeriod * atkMul;
         }
       }
+
+      if (this.anim) this.anim.update(dt);
     },
+
     draw(){
       const p = this.pos;
+
+      // shadow
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
       ctx.beginPath(); ctx.ellipse(p.x+2, p.y+6, this.radius*0.9, this.radius*0.5, 0, 0, Math.PI*2); ctx.fill();
+
+      // tether when attacking
       if (this.state === 'attacking') {
         ctx.strokeStyle = 'rgba(255,120,80,0.6)'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(core.x(), core.y()); ctx.stroke();
       }
+
+      // sprite (reduce bob while attacking)
+    const baseSize = profile?.size ?? (this.boss ? 72 : 56);
+    const bob = (this.state === 'attacking') ? 0.5 : Math.sin(performance.now()/220 + this.id.length) * 1.5;
+
+    // Face horizontally toward the core
+    const coreIsRight = core.x() > p.x;
+    const defaultFacesRight = (profile?.face ?? 'right') === 'right';
+    const flipX = defaultFacesRight ? !coreIsRight : coreIsRight;
+
+    let drew = false;
+    if (this.anim) {
+      const frame = this.anim.frame();
+      if (frame) {
+        drawSprite(frame, p.x, p.y + bob, baseSize, flipX);  // <— note param order
+        drew = true;
+      }
+    }
+    if (!drew) {
+      // fallback: circle
       ctx.fillStyle = this.color;
       ctx.beginPath(); ctx.arc(p.x, p.y, this.radius, 0, Math.PI*2); ctx.fill();
+    }
 
-      const w = this.boss ? 36 : 20, h = 4, x = p.x - w/2, y = p.y - this.radius - 10;
+      // HP bar
+      const w = this.boss ? 36 : 20, h = 4, x = p.x - w/2, y = p.y - (this.boss ? 42 : 30);
       ctx.fillStyle = '#333'; ctx.fillRect(x, y, w, h);
       ctx.fillStyle = '#7fdb6a'; ctx.fillRect(x, y, clamp((this.hp/this.hpMax),0,1)*w, h);
     }
@@ -226,7 +375,9 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
 });
 
 // -------------------- Projectiles --------------------
-function createProjectile(targetId){ return { x: core.x(), y: core.y(), speed: 380, targetId, alive: true }; }
+function createProjectile(targetId){
+  return { x: core.x(), y: core.y(), speed: 380, targetId, alive: true, angle: 0, size: 20 };
+}
 function pickTarget(){
   let best = null, bestDist = Infinity;
   for (const e of enemies) {
@@ -237,7 +388,7 @@ function pickTarget(){
 }
 
 // -------------------- Spawner (loop-driven) --------------------
-const spawners = []; // each: { type, remaining, cadence, timer }
+const spawners = []; // { type, remaining, cadence, timer }
 function spawnBatch(type, count, cadenceSec){
   if (S.defeated) return;
   spawners.push({ type, remaining: count, cadence: cadenceSec, timer: 0 });
@@ -248,10 +399,24 @@ let last = performance.now();
 function loop(now){
   let dt = Math.min((now - last)/1000, 0.05);
   last = now;
-  if (S.paused) dt = 0; else dt *= Math.max(1, S.timeScale);
+
+  // HARD PAUSE: freeze all logic, keep current frame
+  if (S.paused) {
+    draw();
+    requestAnimationFrame(loop);
+    return;
+  }
+
+  dt *= Math.max(1, S.timeScale);
   update(dt); draw(); requestAnimationFrame(loop);
 }
-requestAnimationFrame(loop);
+
+// Start AFTER assets are loaded
+(async () => {
+  try { await loadAssets(ASSETS); }
+  catch (e) { console.warn('Asset load failed:', e); }
+  requestAnimationFrame(loop);
+})();
 
 function update(dt){
   // enemy updates
@@ -289,6 +454,7 @@ function update(dt){
       p.alive = false;
     } else {
       const dx = (tp.x - p.x) / d, dy = (tp.y - p.y) / d;
+      p.angle = Math.atan2(dy, dx);
       p.x += dx * p.speed * dt; p.y += dy * p.speed * dt;
     }
   }
@@ -332,6 +498,7 @@ function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   core.draw();
   frost.drawOverlay();
+
   for (const e of enemies) e.draw();
 
   // boss bar
@@ -346,9 +513,14 @@ function draw(){
     ctx.textAlign = 'center'; ctx.fillText('BOSS', canvas.width/2, y - 2);
   }
 
-  ctx.fillStyle = '#fff';
-  for (const p of projectiles) { ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); }
+  // projectiles (sprite with rotation; fallback to dot)
+  for (const p of projectiles) {
+    const img = getImage('bolt');
+    if (img) drawSprite(img, p.x, p.y, p.size || 20, p.angle || 0);
+    else { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); }
+  }
 
+  // tiny debug HUD (optional)
   ctx.fillStyle='#9fb'; ctx.font='14px system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.fillText(`Enemies: ${enemies.length}`, 12, 20);
@@ -415,9 +587,11 @@ window.engine = {
     wipeSave: wipeSave,
     saveNow: saveGame,
     hasSave: hasSave,
-    setPaused: (v) => { S.paused = !!v; },
-    setSpeed: (n) => { S.timeScale = Math.max(1, n|0); },
-    setAutoStart: (v) => { S.autoStart = !!v; },
+
+    setPaused: (v) => { S.paused = !!v; notifySubscribers(buildSnapshot()); },
+    togglePause: () => { S.paused = !S.paused; notifySubscribers(buildSnapshot()); },
+    setSpeed: (n) => { S.timeScale = Math.max(1, n|0); notifySubscribers(buildSnapshot()); },
+    setAutoStart: (v) => { S.autoStart = !!v; notifySubscribers(buildSnapshot()); },
   }
 };
 

@@ -34,6 +34,7 @@ const App = {
     const loadSave  = () => window.engine.actions.loadSave && window.engine.actions.loadSave();
     const wipeSave  = () => window.engine.actions.wipeSave && window.engine.actions.wipeSave();
     const setPaused = (v) => window.engine.actions.setPaused && window.engine.actions.setPaused(v);
+    const togglePause = () => window.engine.actions.togglePause?.();
     const setSpeed  = (n) => window.engine.actions.setSpeed && window.engine.actions.setSpeed(n);
     const setAutoStart = (v) => window.engine.actions.setAutoStart && window.engine.actions.setAutoStart(v);
 
@@ -45,7 +46,7 @@ const App = {
 
 
     return { ...toRefs(s), startWave, reset, buy, cast, saveNow, loadSave, wipeSave, lastSavedLabel,
-      setPaused, setSpeed, setAutoStart};
+      togglePause, setPaused, setSpeed, setAutoStart};
   }
 };
 
