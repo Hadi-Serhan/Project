@@ -38,57 +38,59 @@ const GOLEM_WALK_LAST    = 23;
 const GOLEM_ATTACK_LAST  = 11;
 const TROLL_WALK_LAST    = 9;
 const TROLL_ATTACK_LAST  = 9;
+const BALL_EXP_LAST      = 5;   // projectiles/2.png .. 5.png
 
 // -------------------- Asset manifest (sequences) --------------------
 const ASSETS = {
-  // Projectiles/core fallback images (use if you have them)
-  // core:  'assets/core.png',
-  // bolt:  'assets/bolt.png',
-
   // Troll (boss)
-  troll_walk:   { seq: { base: 'assets/troll/Walking/Troll_03_1_WALK_',   start: 0, end: TROLL_WALK_LAST,   pad: 3, ext: '.png' } },
-  troll_attack: { seq: { base: 'assets/troll/Slashing/Troll_03_1_ATTACK_',start: 0, end: TROLL_ATTACK_LAST, pad: 3, ext: '.png' } },
+  troll_walk:   { seq: { base: 'assets/troll/Walking/Troll_03_1_WALK_',    start: 0, end: TROLL_WALK_LAST,   pad: 3, ext: '.png' } },
+  troll_attack: { seq: { base: 'assets/troll/Slashing/Troll_03_1_ATTACK_', start: 0, end: TROLL_ATTACK_LAST, pad: 3, ext: '.png' } },
 
   // Golem (tank)
-  golem_walk:   { seq: { base: 'assets/golem/Walking/0_Golem_Walking_',   start: 0, end: GOLEM_WALK_LAST,   pad: 3, ext: '.png' } },
-  golem_attack: { seq: { base: 'assets/golem/Slashing/0_Golem_Slashing_', start: 0, end: GOLEM_ATTACK_LAST, pad: 3, ext: '.png' } },
+  golem_walk:   { seq: { base: 'assets/golem/Walking/0_Golem_Walking_',    start: 0, end: GOLEM_WALK_LAST,   pad: 3, ext: '.png' } },
+  golem_attack:{ seq: { base: 'assets/golem/Slashing/0_Golem_Slashing_',   start: 0, end: GOLEM_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  // Skeleton (fast)
-  skeleton_run:     { seq: { base: 'assets/skeleton/Running/0_Skeleton_Crusader_Running_',    start: 0, end: SKELE_RUN_LAST,    pad: 3, ext: '.png' } },
-  skeleton_attack:  { seq: { base: 'assets/skeleton/Slashing/0_Skeleton_Crusader_Slashing_', start: 0, end: SKELE_ATTACK_LAST, pad: 3, ext: '.png' } },
+  // Skeleton (runner)
+  skeleton_run:    { seq: { base: 'assets/skeleton/Running/0_Skeleton_Crusader_Running_',   start: 0, end: SKELE_RUN_LAST,    pad: 3, ext: '.png' } },
+  skeleton_attack: { seq: { base: 'assets/skeleton/Slashing/0_Skeleton_Crusader_Slashing_', start: 0, end: SKELE_ATTACK_LAST, pad: 3, ext: '.png' } },
 
   // Necromancer (grunt)
-  necro_walk:   { seq: { base: 'assets/necromancer/Walking/0_Necromancer_of_the_Shadow_Walking_', start: 0, end: NECRO_WALK_LAST,   pad: 3, ext: '.png' } },
+  necro_walk:   { seq: { base: 'assets/necromancer/Walking/0_Necromancer_of_the_Shadow_Walking_',   start: 0, end: NECRO_WALK_LAST,   pad: 3, ext: '.png' } },
   necro_attack: { seq: { base: 'assets/necromancer/Slashing/0_Necromancer_of_the_Shadow_Slashing_', start: 0, end: NECRO_ATTACK_LAST, pad: 3, ext: '.png' } },
+
+  // Projectile art
+  ball_idle: 'assets/projectiles/1.png',                                 // flying ball (single)
+  ball_explode: { seq: { base: 'assets/projectiles/', start: 2, end: BALL_EXP_LAST, pad: 0, ext: '.png' } }, // 2..5.png (no padding)
+
+  // Core (three stacked pieces)
+  core_top:  'assets/core/1.png',
+  core_mid:  'assets/core/2.png',
+  core_base: 'assets/core/3.png',
 };
 
 // -------------------- Per-type animation profiles --------------------
 const ANIM = {
-  grunt: {            // Necromancer
-    walk: 'necro_walk',   attack: 'necro_attack',
-    fpsWalk: 10,          fpsAtk: 12,
-    size: 56, face: 'right'
+  grunt: {   // Necromancer
+    walk: 'necro_walk', attack: 'necro_attack',
+    fpsWalk: 10, fpsAtk: 12, size: 56, face: 'right'
   },
-  runner: {             // Skeleton
+  runner: {  // Skeleton
     walk: 'skeleton_run', attack: 'skeleton_attack',
-    fpsWalk: 12,          fpsAtk: 12,
-    size: 52, face: 'right'
+    fpsWalk: 12, fpsAtk: 12, size: 52, face: 'right'
   },
-  tank: {             // Golem
-    walk: 'golem_walk',   attack: 'golem_attack',
-    fpsWalk: 8,           fpsAtk: 10,
-    size: 64, face: 'right'
+  tank: {    // Golem
+    walk: 'golem_walk', attack: 'golem_attack',
+    fpsWalk: 8, fpsAtk: 10, size: 64, face: 'right'
   },
-  boss: {             // Troll
-    walk: 'troll_walk',   attack: 'troll_attack',
-    fpsWalk: 8,           fpsAtk: 10,
-    size: 84, face: 'right'
+  boss: {    // Troll
+    walk: 'troll_walk', attack: 'troll_attack',
+    fpsWalk: 8, fpsAtk: 10, size: 84, face: 'right'
   }
 };
 
 // ---- Register current content into the Engine registry ----
 for (const [id, def] of Object.entries(ENEMY_TYPES)) {
-  def.id = id; 
+  def.id = id;
   Engine.registerEnemyType(id, def);
 }
 Engine.setGoldSink((amt) => { S.gold = Math.max(0, (S.gold|0) + (amt|0)); });
@@ -96,7 +98,6 @@ Engine.setCoreMutator((fn) => { fn(core); });
 
 // -------------------- Save / Load --------------------
 const SAVE_KEY = 'mage-core:v1';
-
 function serialize() {
   return {
     wave: S.wave,
@@ -217,18 +218,16 @@ function coreTookDamage(amount){
   effects.push(makeFloatText(core.x(), core.y() - 28, `-${amount}`, '#ff6b6b'));
 }
 
-// Sprite helper
+// Sprite helper (with optional horizontal flip)
 function drawSprite(img, x, y, size, flipX = false) {
   const half = size / 2;
   ctx.save();
   ctx.translate(x, y);
-  if (flipX) ctx.scale(-1, 1);   // mirror horizontally
+  if (flipX) ctx.scale(-1, 1);
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(img, -half, -half, size, size);
   ctx.restore();
 }
-
-
 
 function makeAnim(key, fps = 8, loop = true) {
   const frames = getFrames(key) || (getImage(key) ? [getImage(key)] : null);
@@ -254,6 +253,88 @@ function makeAnim(key, fps = 8, loop = true) {
     reset() { this.t = 0; this.idx = 0; }
   };
 }
+
+
+// --- sprite helpers (keep aspect ratio) ---
+function drawSpriteFitW(img, x, y, targetW, flipX = false) {
+  if (!img) return;
+  const iw = img.width || 1, ih = img.height || 1;
+  const w = targetW;
+  const h = w * (ih / iw);      // preserve aspect
+  const hx = w / 2, hy = h / 2;
+
+  ctx.save();
+  ctx.translate(x, y);
+  if (flipX) ctx.scale(-1, 1);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(img, -hx, -hy, w, h);
+  ctx.restore();
+}
+
+// fire is queued to align with coreArt.launchFrac
+const pendingShots = [];
+
+// --- CORE ART (per-piece sizes + offsets; small lift when firing) ---
+const coreArt = {
+  // throw timing
+  t: 0,
+  dur: 0.45,
+  throwing: false,
+
+  // overall anchor and scale for the whole tower
+  scale: 1.0,
+  anchorY: 10,   // push the whole tower down a bit
+
+  // piece widths (not squares!) — tune these three to match your art
+  baseW: 140,    // base is widest
+  midW:  122,    // middle a bit narrower
+  topW:  118,    // top a bit narrower than middle
+  ballW:  28,    // the iron ball
+
+  // resting vertical offsets (relative to core.y()+anchorY)
+  restBaseY:  10,
+  restMidY:   35,
+  restTopY:  10,
+  restBallY: 15,
+
+  // lift amounts during the throw animation
+  liftMid:  30,
+  liftTop: 34,
+  liftBall: 200,
+
+  // the moment (within dur) we “launch” the ball and stop drawing it on the tower
+  launchFrac: 0.45,
+
+  startThrow() { this.throwing = true; this.t = 0; },
+  update(dt) {
+    if (!this.throwing) return;
+    this.t += dt;
+    if (this.t >= this.dur) { this.throwing = false; this.t = 0; }
+  },
+  draw() {
+    const x = core.x();
+    const y = core.y() + this.anchorY;
+    const k = this.throwing ? Math.sin((this.t / this.dur) * Math.PI) : 0;
+
+    const imgBase = getImage('core_base');
+    const imgMid  = getImage('core_mid');
+    const imgTop  = getImage('core_top');
+    const ballImg = getImage('ball_idle');
+
+    if (imgBase) drawSpriteFitW(imgBase, x, y + this.restBaseY, this.baseW * this.scale);
+    if (imgMid)  drawSpriteFitW(imgMid,  x, y + this.restMidY  - this.liftMid  * k, this.midW  * this.scale);
+    if (imgTop)  drawSpriteFitW(imgTop,  x, y + this.restTopY  - this.liftTop  * k, this.topW  * this.scale);
+
+    // draw the parked ball only BEFORE launch moment
+    const showBall = !this.throwing || (this.t / this.dur) < this.launchFrac;
+    if (showBall && ballImg) {
+      drawSpriteFitW(ballImg, x, y + this.restBallY - this.liftBall * k, this.ballW);
+    }
+  }
+};
+
+
+
 
 // -------------------- Enemy factory (provided to Engine) --------------------
 Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
@@ -304,6 +385,7 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
     },
 
     update(dt){
+      coreArt.update(dt);
       const p = this.pos;
       let slowFactor = 0;
       if (frost.isIn(p.x, p.y)) slowFactor = this.boss ? Math.min(frost.slow, 0.20) : frost.slow;
@@ -344,27 +426,23 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
       }
 
       // sprite (reduce bob while attacking)
-    const baseSize = profile?.size ?? (this.boss ? 72 : 56);
-    const bob = (this.state === 'attacking') ? 0.5 : Math.sin(performance.now()/220 + this.id.length) * 1.5;
+      const baseSize = profile?.size ?? (this.boss ? 72 : 56);
+      const bob  = (this.state === 'attacking') ? 0.5 : Math.sin(performance.now()/220 + this.id.length) * 1.5;
 
-    // Face horizontally toward the core
-    const coreIsRight = core.x() > p.x;
-    const defaultFacesRight = (profile?.face ?? 'right') === 'right';
-    const flipX = defaultFacesRight ? !coreIsRight : coreIsRight;
+      // Face horizontally toward the core
+      const coreIsRight = core.x() > p.x;
+      const defaultFacesRight = (profile?.face ?? 'right') === 'right';
+      const flipX = defaultFacesRight ? !coreIsRight : coreIsRight;
 
-    let drew = false;
-    if (this.anim) {
-      const frame = this.anim.frame();
-      if (frame) {
-        drawSprite(frame, p.x, p.y + bob, baseSize, flipX);  // <— note param order
-        drew = true;
+      let drew = false;
+      if (this.anim) {
+        const frame = this.anim.frame();
+        if (frame) { drawSprite(frame, p.x, p.y + bob, baseSize, flipX); drew = true; }
       }
-    }
-    if (!drew) {
-      // fallback: circle
-      ctx.fillStyle = this.color;
-      ctx.beginPath(); ctx.arc(p.x, p.y, this.radius, 0, Math.PI*2); ctx.fill();
-    }
+      if (!drew) {
+        ctx.fillStyle = this.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, this.radius, 0, Math.PI*2); ctx.fill();
+      }
 
       // HP bar
       const w = this.boss ? 36 : 20, h = 4, x = p.x - w/2, y = p.y - (this.boss ? 42 : 30);
@@ -375,9 +453,28 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
 });
 
 // -------------------- Projectiles --------------------
-function createProjectile(targetId){
-  return { x: core.x(), y: core.y(), speed: 380, targetId, alive: true, angle: 0, size: 20 };
+function createArcProjectile(targetId) {
+  const sx = core.x(), sy = core.y() - 8;
+  const tgt = enemies.find(e => e.id === targetId);
+  const ex = tgt ? tgt.pos.x : sx, ey = tgt ? tgt.pos.y : sy;
+  const dist0 = Math.hypot(ex - sx, ey - sy);
+
+  return {
+    state: 'arc',
+    alive: true,
+    targetId,
+    // parametric flight
+    t: 0,
+    ttl: clamp(0.38 + dist0 / 800, 0.38, 0.75), // 0.38–0.75s
+    startX: sx, startY: sy,
+    x: sx, y: sy,
+    arcH: 60 + dist0 * 0.35,  // arc height scales with distance
+    size: 24,
+    hitApplied: false,
+    explode: makeAnim('ball_explode', 18, false)
+  };
 }
+
 function pickTarget(){
   let best = null, bestDist = Infinity;
   for (const e of enemies) {
@@ -407,6 +504,7 @@ function loop(now){
     return;
   }
 
+  coreArt.update(dt);
   dt *= Math.max(1, S.timeScale);
   update(dt); draw(); requestAnimationFrame(loop);
 }
@@ -427,38 +525,79 @@ function update(dt){
     core._fireTimer -= dt;
     if (core._fireTimer <= 0) {
       const target = pickTarget();
-      if (target) { projectiles.push(createProjectile(target.id)); core._fireTimer = 1 / core.fireRate; }
+      if (target) {
+        coreArt.startThrow();                       // start wind-up
+        pendingShots.push({                         // spawn later at launch moment
+          targetId: target.id,
+          t: coreArt.dur * coreArt.launchFrac
+        });
+        core._fireTimer = 1 / core.fireRate;
+      }
     }
   }
 
-  // spawners
-  for (let i = spawners.length - 1; i >= 0; i--) {
-    const s = spawners[i];
-    s.timer -= dt;
-    while (s.timer <= 0 && s.remaining > 0) {
-      enemies.push(Engine.spawnEnemy(s.type, S.wave));
-      s.remaining--;
-      s.timer += s.cadence;
+  // launch queued shots when their timers elapse
+  for (let i = pendingShots.length - 1; i >= 0; i--) {
+    pendingShots[i].t -= dt;
+    if (pendingShots[i].t <= 0) {
+      projectiles.push(createArcProjectile(pendingShots[i].targetId));
+      pendingShots.splice(i, 1);
     }
-    if (s.remaining <= 0) spawners.splice(i, 1);
+  }
+
+
+  for (let i = spawners.length - 1; i >= 0; i--) {
+  const s = spawners[i];
+  s.timer -= dt;
+  while (s.timer <= 0 && s.remaining > 0) {
+    enemies.push(Engine.spawnEnemy(s.type, S.wave));
+    s.remaining--;
+    s.timer += s.cadence;
+  }
+  if (s.remaining <= 0) spawners.splice(i, 1);
   }
 
   // projectiles
   for (const p of projectiles) {
     if (!p.alive) continue;
-    const t = enemies.find(e => e.id === p.targetId);
-    if (!t) { p.alive = false; continue; }
-    const tp = t.pos, d = dist(p.x, p.y, tp.x, tp.y);
-    if (d < 12) {
-      applyDamage(t, core.damage);
-      p.alive = false;
-    } else {
-      const dx = (tp.x - p.x) / d, dy = (tp.y - p.y) / d;
-      p.angle = Math.atan2(dy, dx);
-      p.x += dx * p.speed * dt; p.y += dy * p.speed * dt;
+
+    if (p.state === 'arc') {
+      const tgt = enemies.find(e => e.id === p.targetId);
+      if (!tgt) { p.alive = false; continue; }
+
+      // slightly home each frame (handles moving targets)
+      const end = tgt.pos;
+
+      p.t += dt;
+      const u = Math.min(1, p.t / p.ttl);       // 0..1 flight progress
+
+      // linear interpolation from start to (current) end
+      const lx = p.startX + (end.x - p.startX) * u;
+      const ly = p.startY + (end.y - p.startY) * u;
+
+      // parabola for height: 4u(1-u) peaks at 0.5
+      const yArc = p.arcH * (4 * u * (1 - u));
+      p.x = lx;
+      p.y = ly - yArc;
+
+      // hit when close enough or when u reaches 1
+      const hitR = (tgt.radius || 16) + 10;
+      if (dist(p.x, p.y, end.x, end.y) <= hitR || u >= 1) {
+        if (!p.hitApplied) { applyDamage(tgt, core.damage); p.hitApplied = true; }
+        p.state = 'explode';
+        p.explode.reset();
+      }
+
+    } else { // explode
+      p.explode.update(dt);
+      const frames = p.explode.frames || [];
+      if (p.explode.idx >= frames.length - 1) p.alive = false;
     }
   }
-  for (let i=projectiles.length-1; i>=0; i--) if (!projectiles[i].alive) projectiles.splice(i,1);
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    if (!projectiles[i].alive) projectiles.splice(i, 1);
+  }
+
 
   // abilities / effects
   if (nova.cdLeft  > 0) nova.cdLeft  = Math.max(0, nova.cdLeft  - dt);
@@ -496,7 +635,10 @@ function update(dt){
 
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  core.draw();
+
+  // decorative stacked art
+  coreArt.draw();
+
   frost.drawOverlay();
 
   for (const e of enemies) e.draw();
@@ -513,11 +655,16 @@ function draw(){
     ctx.textAlign = 'center'; ctx.fillText('BOSS', canvas.width/2, y - 2);
   }
 
-  // projectiles (sprite with rotation; fallback to dot)
+  // projectiles (ball in flight or explosion frames)
   for (const p of projectiles) {
-    const img = getImage('bolt');
-    if (img) drawSprite(img, p.x, p.y, p.size || 20, p.angle || 0);
-    else { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); }
+    if (p.state === 'arc') {
+      const ball = getImage('ball_idle');
+      if (ball) drawSprite(ball, p.x, p.y, p.size || 24);
+      else { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); }
+    } else {
+      const frame = p.explode?.frame();
+      if (frame) drawSprite(frame, p.x, p.y, (p.size || 24) * 1.5, false);
+    }
   }
 
   // tiny debug HUD (optional)
