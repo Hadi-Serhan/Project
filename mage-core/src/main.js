@@ -44,28 +44,25 @@ const TROLL_ATTACK_LAST  = 9;
 const BALL_EXP_LAST      = 5;
 
 // -------------------- Asset manifest --------------------
-// -------------------- Asset manifest --------------------
-const A = (p) => new URL(`../assets/${p}`, import.meta.url).toString();
-
 const ASSETS = {
-  troll_walk:   { seq: { base: A('troll/Walking/Troll_03_1_WALK_'),    start: 0, end: TROLL_WALK_LAST,   pad: 3, ext: '.png' } },
-  troll_attack: { seq: { base: A('troll/Slashing/Troll_03_1_ATTACK_'), start: 0, end: TROLL_ATTACK_LAST, pad: 3, ext: '.png' } },
+  troll_walk:   { seq: { base: 'assets/troll/Walking/Troll_03_1_WALK_',    start: 0, end: TROLL_WALK_LAST,   pad: 3, ext: '.png' } },
+  troll_attack: { seq: { base: 'assets/troll/Slashing/Troll_03_1_ATTACK_', start: 0, end: TROLL_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  golem_walk:   { seq: { base: A('golem/Walking/0_Golem_Walking_'),    start: 0, end: GOLEM_WALK_LAST,   pad: 3, ext: '.png' } },
-  golem_attack:{ seq: { base: A('golem/Slashing/0_Golem_Slashing_'),   start: 0, end: GOLEM_ATTACK_LAST, pad: 3, ext: '.png' } },
+  golem_walk:   { seq: { base: 'assets/golem/Walking/0_Golem_Walking_',    start: 0, end: GOLEM_WALK_LAST,   pad: 3, ext: '.png' } },
+  golem_attack: { seq: { base: 'assets/golem/Slashing/0_Golem_Slashing_',   start: 0, end: GOLEM_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  skeleton_run:    { seq: { base: A('skeleton/Running/0_Skeleton_Crusader_Running_'),   start: 0, end: SKELE_RUN_LAST,    pad: 3, ext: '.png' } },
-  skeleton_attack: { seq: { base: A('skeleton/Slashing/0_Skeleton_Crusader_Slashing_'), start: 0, end: SKELE_ATTACK_LAST, pad: 3, ext: '.png' } },
+  skeleton_run:    { seq: { base: 'assets/skeleton/Running/0_Skeleton_Crusader_Running_',   start: 0, end: SKELE_RUN_LAST,    pad: 3, ext: '.png' } },
+  skeleton_attack: { seq: { base: 'assets/skeleton/Slashing/0_Skeleton_Crusader_Slashing_', start: 0, end: SKELE_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  necro_walk:   { seq: { base: A('necromancer/Walking/0_Necromancer_of_the_Shadow_Walking_'),   start: 0, end: NECRO_WALK_LAST,   pad: 3, ext: '.png' } },
-  necro_attack: { seq: { base: A('necromancer/Slashing/0_Necromancer_of_the_Shadow_Slashing_'), start: 0, end: NECRO_ATTACK_LAST, pad: 3, ext: '.png' } },
+  necro_walk:   { seq: { base: 'assets/necromancer/Walking/0_Necromancer_of_the_Shadow_Walking_',   start: 0, end: NECRO_WALK_LAST,   pad: 3, ext: '.png' } },
+  necro_attack: { seq: { base: 'assets/necromancer/Slashing/0_Necromancer_of_the_Shadow_Slashing_', start: 0, end: NECRO_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  ball_idle:     A('projectiles/1.png'),
-  ball_explode: { seq: { base: A('projectiles/'), start: 2, end: BALL_EXP_LAST, pad: 0, ext: '.png' } },
+  ball_idle:    'assets/projectiles/1.png',
+  ball_explode: { seq: { base: 'assets/projectiles/', start: 2, end: BALL_EXP_LAST, pad: 0, ext: '.png' } },
 
-  core_top:  A('core/1.png'),
-  core_mid:  A('core/2.png'),
-  core_base: A('core/3.png'),
+  core_top:  'assets/core/1.png',
+  core_mid:  'assets/core/2.png',
+  core_base: 'assets/core/3.png',
 };
 
 

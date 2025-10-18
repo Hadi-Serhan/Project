@@ -1,8 +1,17 @@
-// src/assets.js
+// mage-core/src/assets.js
 import Engine from './engine.js';
 
 const cache = {};     // key -> Image | Image[]
 let ready = false;
+
+// Get base URL for assets (GitHub Pages vs local)
+function getAssetUrl(path) {
+  const baseUrl =
+    window.location.hostname === 'hadi-serhan.github.io'
+      ? '/Project/mage-core/'
+      : '/mage-core/';
+  return baseUrl + path.replace(/^\/+/, '');
+}
 
 // ---- simple event hub for assets (progress/ready) ----
 const listeners = new Map(); // evt -> Set<fn>
@@ -18,37 +27,28 @@ export const whenReady = new Promise(res => (_readyResolve = res));
 function loadImage(key, url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    // allow CDN-hosted assets
-    if (typeof url === 'string' && /^https?:\/\//i.test(url)) img.crossOrigin = 'anonymous';
+    const fullUrl = /^https?:\/\//i.test(url) ? url : getAssetUrl(url);
+    img.crossOrigin = 'anonymous';
     img.onload = () => { cache[key] = img; resolve(); };
-    img.onerror = (e) => { console.warn('Failed image', key, url, e); reject(e); };
-    img.src = url;
+    img.onerror = (e) => { console.warn('Failed to load image', key, fullUrl, e); reject(e); };
+    img.src = fullUrl; // <-- use fullUrl
   });
 }
 
 // Expand a sequence descriptor into frames and store as Image[]
 async function loadSequence(key, seq) {
-  const {
-    base,          // 'assets/necromancer/walk_'
-    start = 0,     // 0
-    end,           // 7   (inclusive)
-    pad = 0,       // 2   -> '00'
-    ext = '.png'   // '.png'
-  } = seq;
-
+  const { base, start = 0, end, pad = 0, ext = '.png' } = seq;
   const frames = [];
   for (let i = start; i <= end; i++) {
     const num = pad ? String(i).padStart(pad, '0') : String(i);
     const url = `${base}${num}${ext}`;
+    const fullUrl = /^https?:\/\//i.test(url) ? url : getAssetUrl(url);
     const img = await new Promise((resolve, reject) => {
       const im = new Image();
-      if (typeof url === 'string' && /^https?:\/\//i.test(url)) im.crossOrigin = 'anonymous';
+      im.crossOrigin = 'anonymous';
       im.onload = () => resolve(im);
-      im.onerror = (err) => {
-        console.warn('Failed frame', key, url, err);
-        reject(err);
-      };
-      im.src = url;
+      im.onerror = (err) => { console.warn('Failed to load frame', key, fullUrl, err); reject(err); };
+      im.src = fullUrl; // <-- FIXED
     });
     frames.push(img);
   }
@@ -59,12 +59,13 @@ async function loadSequence(key, seq) {
 async function loadList(key, list) {
   const frames = [];
   for (const url of list) {
+    const fullUrl = /^https?:\/\//i.test(url) ? url : getAssetUrl(url);
     const img = await new Promise((resolve, reject) => {
       const im = new Image();
-      if (typeof url === 'string' && /^https?:\/\//i.test(url)) im.crossOrigin = 'anonymous';
+      if (/^https?:\/\//i.test(fullUrl)) im.crossOrigin = 'anonymous';
       im.onload = () => resolve(im);
-      im.onerror = reject;
-      im.src = url;
+      im.onerror = (e) => { console.warn('Failed to load list image', key, fullUrl, e); reject(e); };
+      im.src = fullUrl; // <-- make absolute consistently
     });
     frames.push(img);
   }
@@ -72,7 +73,6 @@ async function loadList(key, list) {
 }
 
 // -------------------- Public load APIs --------------------
-// Original API (kept as-is). Use at boot for the base manifest.
 export async function loadAssets(manifest) {
   await addAssets(manifest);
   ready = true;
@@ -80,7 +80,6 @@ export async function loadAssets(manifest) {
   emit('ready', { ready: true });
 }
 
-// New: can be called any time (e.g., by mods) to add/override assets.
 export async function addAssets(manifest = {}) {
   const entries = Object.entries(manifest || {});
   const total = entries.length || 1;
@@ -89,39 +88,24 @@ export async function addAssets(manifest = {}) {
 
   const tasks = [];
   for (const [key, value] of entries) {
-    // De-dupe: if the same key is already loaded and the value looks identical-type, skip.
     if (cache[key]) {
-      if (value && typeof value === 'object' && ('alias' in value || 'replace' in value)) {
-        // allow override paths below
-      } else {
+      if (!(value && typeof value === 'object' && (value.alias || value.replace))) {
         const existing = cache[key];
         const isSeq = Array.isArray(existing);
         const wantsSeq = value && (value.seq || Array.isArray(value.list));
-        if ((isSeq && wantsSeq) || (!isSeq && typeof value === 'string')) {
-          tick(); // no-op but count toward progress
-          continue;
-        }
+        if ((isSeq && wantsSeq) || (!isSeq && typeof value === 'string')) { tick(); continue; }
       }
     }
 
-    // Handle aliasing (multiple keys sharing the same cached asset)
     if (value && typeof value === 'object' && value.alias) {
       const target = cache[value.alias];
-      if (target) {
-        cache[key] = target;
-      } else {
-        console.warn(`Alias target "${value.alias}" not found for key "${key}"`);
-      }
-      tick();
-      continue;
+      if (target) cache[key] = target;
+      else console.warn(`Alias target "${value.alias}" not found for key "${key}"`);
+      tick(); continue;
     }
 
-    // Handle explicit replace request
-    if (value && typeof value === 'object' && value.replace) {
-      delete cache[key];
-    }
+    if (value && typeof value === 'object' && value.replace) delete cache[key];
 
-    // Dispatch loaders by shape
     if (typeof value === 'string') {
       tasks.push(loadImage(key, value).then(tick));
     } else if (value && value.seq) {
@@ -137,25 +121,15 @@ export async function addAssets(manifest = {}) {
 }
 
 // -------------------- Queries --------------------
-export function getImage(key) {
-  const v = cache[key];
-  return Array.isArray(v) ? v[0] : v || null;
-}
-export function getFrames(key) {
-  const v = cache[key];
-  return Array.isArray(v) ? v : null;
-}
+export function getImage(key) { const v = cache[key]; return Array.isArray(v) ? v[0] : v || null; }
+export function getFrames(key) { const v = cache[key]; return Array.isArray(v) ? v : null; }
 export function assetsReady() { return ready; }
 export function hasAsset(key) { return key in cache; }
 export function listAssets() { return Object.keys(cache); }
 export function removeAssets(keys = []) { for (const k of keys) delete cache[k]; }
 
 // -------------------- Engine bridge for mods --------------------
-// Allows mods to call: Engine.setAssets({ ... })
 Engine.setAssetsBridge(async (manifest) => {
-  try {
-    await addAssets(manifest);
-  } catch (e) {
-    console.warn('Engine.setAssetsBridge failed:', e);
-  }
+  try { await addAssets(manifest); }
+  catch (e) { console.warn('Engine.setAssetsBridge failed:', e); }
 });
