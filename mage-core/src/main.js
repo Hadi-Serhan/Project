@@ -1,3 +1,4 @@
+// src/main.js
 import {
   canvas, ctx, cx, cy, dist, clamp,
   core, enemies, projectiles, effects,
@@ -14,8 +15,10 @@ import {
 
 import Engine from './engine.js';
 import { ENEMY_TYPES, waveRecipe } from './content.js';
-import { nova, frost } from './abilities.js';
 import { loadAssets, getImage, getFrames } from './assets.js';
+
+// Expose live game state to mods via Engine.state / window.EngineState
+Engine.setStateAccessor(() => ({ core, enemies, effects, projectiles }));
 
 // -------------------- Local "view" of state --------------------
 const S = {
@@ -29,7 +32,7 @@ const S = {
   get autoStart()    { return autoStart; }, set autoStart(v) { setAutoStart(v); }
 };
 
-// ---- sprite sheet frame counts (inclusive end indexes you observed) ----
+// ---- sprite sheet frame counts ----
 const NECRO_WALK_LAST    = 22;
 const NECRO_ATTACK_LAST  = 11;
 const SKELE_RUN_LAST     = 11;
@@ -38,31 +41,25 @@ const GOLEM_WALK_LAST    = 23;
 const GOLEM_ATTACK_LAST  = 11;
 const TROLL_WALK_LAST    = 9;
 const TROLL_ATTACK_LAST  = 9;
-const BALL_EXP_LAST      = 5;   // projectiles/2.png .. 5.png
+const BALL_EXP_LAST      = 5;
 
-// -------------------- Asset manifest (sequences) --------------------
+// -------------------- Asset manifest --------------------
 const ASSETS = {
-  // Troll (boss)
   troll_walk:   { seq: { base: 'assets/troll/Walking/Troll_03_1_WALK_',    start: 0, end: TROLL_WALK_LAST,   pad: 3, ext: '.png' } },
   troll_attack: { seq: { base: 'assets/troll/Slashing/Troll_03_1_ATTACK_', start: 0, end: TROLL_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  // Golem (tank)
   golem_walk:   { seq: { base: 'assets/golem/Walking/0_Golem_Walking_',    start: 0, end: GOLEM_WALK_LAST,   pad: 3, ext: '.png' } },
   golem_attack:{ seq: { base: 'assets/golem/Slashing/0_Golem_Slashing_',   start: 0, end: GOLEM_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  // Skeleton (runner)
   skeleton_run:    { seq: { base: 'assets/skeleton/Running/0_Skeleton_Crusader_Running_',   start: 0, end: SKELE_RUN_LAST,    pad: 3, ext: '.png' } },
   skeleton_attack: { seq: { base: 'assets/skeleton/Slashing/0_Skeleton_Crusader_Slashing_', start: 0, end: SKELE_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  // Necromancer (grunt)
   necro_walk:   { seq: { base: 'assets/necromancer/Walking/0_Necromancer_of_the_Shadow_Walking_',   start: 0, end: NECRO_WALK_LAST,   pad: 3, ext: '.png' } },
   necro_attack: { seq: { base: 'assets/necromancer/Slashing/0_Necromancer_of_the_Shadow_Slashing_', start: 0, end: NECRO_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  // Projectile art
-  ball_idle: 'assets/projectiles/1.png',                                 // flying ball (single)
-  ball_explode: { seq: { base: 'assets/projectiles/', start: 2, end: BALL_EXP_LAST, pad: 0, ext: '.png' } }, // 2..5.png (no padding)
+  ball_idle: 'assets/projectiles/1.png',
+  ball_explode: { seq: { base: 'assets/projectiles/', start: 2, end: BALL_EXP_LAST, pad: 0, ext: '.png' } },
 
-  // Core (three stacked pieces)
   core_top:  'assets/core/1.png',
   core_mid:  'assets/core/2.png',
   core_base: 'assets/core/3.png',
@@ -70,25 +67,13 @@ const ASSETS = {
 
 // -------------------- Per-type animation profiles --------------------
 const ANIM = {
-  grunt: {   // Necromancer
-    walk: 'necro_walk', attack: 'necro_attack',
-    fpsWalk: 10, fpsAtk: 12, size: 56, face: 'right'
-  },
-  runner: {  // Skeleton
-    walk: 'skeleton_run', attack: 'skeleton_attack',
-    fpsWalk: 12, fpsAtk: 12, size: 52, face: 'right'
-  },
-  tank: {    // Golem
-    walk: 'golem_walk', attack: 'golem_attack',
-    fpsWalk: 8, fpsAtk: 10, size: 64, face: 'right'
-  },
-  boss: {    // Troll
-    walk: 'troll_walk', attack: 'troll_attack',
-    fpsWalk: 8, fpsAtk: 10, size: 84, face: 'right'
-  }
+  grunt: { walk: 'necro_walk', attack: 'necro_attack', fpsWalk: 10, fpsAtk: 12, size: 56, face: 'right' },
+  runner:{ walk: 'skeleton_run', attack: 'skeleton_attack', fpsWalk: 12, fpsAtk: 12, size: 52, face: 'right' },
+  tank:  { walk: 'golem_walk',   attack: 'golem_attack',   fpsWalk: 8,  fpsAtk: 10, size: 64, face: 'right' },
+  boss:  { walk: 'troll_walk',   attack: 'troll_attack',   fpsWalk: 8,  fpsAtk: 10, size: 84, face: 'right' }
 };
 
-// ---- Register current content into the Engine registry ----
+// ---- Register enemy types ----
 for (const [id, def] of Object.entries(ENEMY_TYPES)) {
   def.id = id;
   Engine.registerEnemyType(id, def);
@@ -96,22 +81,43 @@ for (const [id, def] of Object.entries(ENEMY_TYPES)) {
 Engine.setGoldSink((amt) => { S.gold = Math.max(0, (S.gold|0) + (amt|0)); });
 Engine.setCoreMutator((fn) => { fn(core); });
 
+// ---- Base game upgrades registered via Engine (mods can override/replace) ----
+Engine.registerUpgrade('dmg', {
+  title: 'Damage',
+  desc:  'Increase projectile damage.',
+  cost(level){ return Math.floor(20 * Math.pow(1.5, level)); },
+  apply(core, level){
+    core.damage = core.baseDamage + level * 5;
+  }
+});
+
+Engine.registerUpgrade('rof', {
+  title: 'Fire Rate',
+  desc:  'Increase shots per second.',
+  cost(level){ return Math.floor(20 * Math.pow(1.5, level)); },
+  apply(core, level){
+    core.fireRate = core.baseFireRate + level * 0.2;
+  }
+});
+
+Engine.registerUpgrade('range', {
+  title: 'Range',
+  desc:  'Increase targeting radius.',
+  cost(level){ return Math.floor(20 * Math.pow(1.5, level)); },
+  apply(core, level){
+    core.range = core.baseRange + level * 12;
+  }
+});
+
 // -------------------- Save / Load --------------------
 const SAVE_KEY = 'mage-core:v1';
 function serialize() {
   return {
-    wave: S.wave,
-    waveRunning: false,
-    defeated: false,
-    gold: S.gold,
-    coreHP: core.hp,
-    upgrades: { ...upgrades },
-    novaCD: nova.cdLeft,
-    frostCD: frost.cdLeft,
-    savedAt: Date.now(),
-    timeScale: S.timeScale,
-    autoStart: S.autoStart,
-    mods: [],
+    wave: S.wave, waveRunning: false, defeated: false,
+    gold: S.gold, coreHP: core.hp, upgrades: { ...upgrades },
+    // Ability cooldowns are mod content; mods may save their own state if needed.
+    savedAt: Date.now(), timeScale: S.timeScale, autoStart: S.autoStart,
+    mods: [], // reserved for mod-managed state
   };
 }
 function hasSave() { try { return !!localStorage.getItem(SAVE_KEY); } catch { return false; } }
@@ -124,13 +130,8 @@ function saveGame() {
   } catch {}
 }
 function applySnapshot(snap) {
-  S.wave = snap.wave ?? 0;
-  S.waveRunning = false;
-  S.defeated = false;
-  S.gold = snap.gold ?? 0;
-  S.timeScale = snap.timeScale ?? 1;
-  S.autoStart = !!(snap.autoStart ?? false);
-
+  S.wave = snap.wave ?? 0; S.waveRunning = false; S.defeated = false;
+  S.gold = snap.gold ?? 0; S.timeScale = snap.timeScale ?? 1; S.autoStart = !!(snap.autoStart ?? false);
   core.hp = Math.min(core.hpMax, snap.coreHP ?? core.hpMax);
 
   upgrades.dmg   = snap.upgrades?.dmg   ?? 0;
@@ -138,54 +139,55 @@ function applySnapshot(snap) {
   upgrades.range = snap.upgrades?.range ?? 0;
   core.applyUpgrades();
 
-  nova.cdLeft  = snap.novaCD  ?? 0;
-  frost.cdLeft = snap.frostCD ?? 0;
+  enemies.length = 0; projectiles.length = 0; effects.length = 0; spawners.length = 0;
 
-  enemies.length = 0;
-  projectiles.length = 0;
-  effects.length = 0;
-  spawners.length = 0;
-
-  setWaveStatus('Loaded ✅');
-  notifySubscribers(buildSnapshot());
+  setWaveStatus('Loaded ✅'); notifySubscribers(buildSnapshot());
 }
 function loadGame() {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return false;
-    applySnapshot(JSON.parse(raw));
-    return true;
-  } catch { return false; }
+  try { const raw = localStorage.getItem(SAVE_KEY); if (!raw) return false; applySnapshot(JSON.parse(raw)); return true; }
+  catch { return false; }
 }
-function wipeSave() {
-  try { localStorage.removeItem(SAVE_KEY); } catch {}
-  setWaveStatus('Save wiped 🗑️');
-  notifySubscribers(buildSnapshot());
-}
+function wipeSave() { try { localStorage.removeItem(SAVE_KEY); } catch {} setWaveStatus('Save wiped 🗑️'); notifySubscribers(buildSnapshot()); }
 setInterval(saveGame, 5000);
 
 // -------------------- Snapshot for Vue --------------------
+function snapshotAbilities() {
+  const out = [];
+  const reg = Engine.registry?.abilities || {};
+  for (const [id, a] of Object.entries(reg)) {
+    out.push({
+      id,
+      title: a.title || id,
+      hint: a.hint || '',
+      enabled: a.enabled !== false,
+      cd: Number.isFinite(a.cd) ? a.cd : 0,
+      cdLeft: Number.isFinite(a.cdLeft) ? a.cdLeft : 0
+    });
+  }
+  // stable order: by title then id
+  out.sort((x,y) => (x.title||'').localeCompare(y.title||'') || x.id.localeCompare(y.id));
+  return out;
+}
+function snapshotUpgrades() {
+  const reg = Engine.registry?.upgrades || {};
+  const costs = {};
+  for (const [id, def] of Object.entries(reg)) {
+    const level = upgrades[id] | 0;
+    costs[id] = typeof def.cost === 'function' ? def.cost(level) : 0;
+  }
+  return { levels: { ...upgrades }, costs };
+}
 function buildSnapshot(){
   let lastSaved = null;
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) lastSaved = (JSON.parse(raw).savedAt) || null;
-  } catch {}
-
+  try { const raw = localStorage.getItem(SAVE_KEY); if (raw) lastSaved = (JSON.parse(raw).savedAt) || null; } catch {}
+  const { costs } = snapshotUpgrades();
   return {
-    wave: S.wave,
-    waveRunning: S.waveRunning,
-    defeated: S.defeated,
-    coreHP: core.hp,
-    gold: S.gold,
-    costs: { dmg: cost('dmg'), rof: cost('rof'), range: cost('range') },
-    cd: { nova: nova.cdLeft, frost: frost.cdLeft },
-    waveStatus: S.waveStatus,
-    hasSave: hasSave(),
-    lastSaved,
-    paused: S.paused,
-    timeScale: S.timeScale,
-    autoStart: S.autoStart,
+    wave: S.wave, waveRunning: S.waveRunning, defeated: S.defeated,
+    coreHP: core.hp, gold: S.gold,
+    costs,
+    abilities: snapshotAbilities(),
+    waveStatus: S.waveStatus, hasSave: hasSave(), lastSaved,
+    paused: S.paused, timeScale: S.timeScale, autoStart: S.autoStart,
   };
 }
 
@@ -195,16 +197,11 @@ function makeFloatText(x, y, text, color='#ffd166') {
     t: 0, dur: 0.8, x, y, vy: -36,
     draw(dt){
       this.t += dt;
-      const k = clamp(this.t/this.dur, 0, 1);
-      const alpha = 1 - k;
+      const k = clamp(this.t/this.dur, 0, 1), alpha = 1 - k;
       const yy = this.y + this.vy * this.t;
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = color;
-      ctx.font = 'bold 14px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(text, this.x, yy);
-      ctx.restore();
+      ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = color;
+      ctx.font = 'bold 14px system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(text, this.x, yy); ctx.restore();
       return this.t < this.dur;
     }
   };
@@ -218,125 +215,111 @@ function coreTookDamage(amount){
   effects.push(makeFloatText(core.x(), core.y() - 28, `-${amount}`, '#ff6b6b'));
 }
 
-// Sprite helper (with optional horizontal flip)
+// -------------------- Sprite helpers --------------------
 function drawSprite(img, x, y, size, flipX = false) {
   const half = size / 2;
-  ctx.save();
-  ctx.translate(x, y);
-  if (flipX) ctx.scale(-1, 1);
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(img, -half, -half, size, size);
+  ctx.save(); ctx.translate(x, y); if (flipX) ctx.scale(-1, 1);
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(img, -half, -half, size, size);
   ctx.restore();
 }
-
 function makeAnim(key, fps = 8, loop = true) {
   const frames = getFrames(key) || (getImage(key) ? [getImage(key)] : null);
   return {
-    key, frames, fps, loop,
-    t: 0, idx: 0,
+    key, frames, fps, loop, t: 0, idx: 0,
     update(dt) {
       if (!this.frames || this.frames.length === 0) return;
       this.t += dt;
-      const frameAdvance = Math.floor(this.t * this.fps);
-      if (frameAdvance > 0) {
-        this.t -= frameAdvance / this.fps;
-        if (this.loop) {
-          this.idx = (this.idx + frameAdvance) % this.frames.length;
-        } else {
-          this.idx = Math.min(this.idx + frameAdvance, this.frames.length - 1);
-        }
+      const adv = Math.floor(this.t * this.fps);
+      if (adv > 0) {
+        this.t -= adv / this.fps;
+        this.idx = this.loop ? (this.idx + adv) % this.frames.length
+                             : Math.min(this.idx + adv, this.frames.length - 1);
       }
     },
-    frame() {
-      return (this.frames && this.frames.length) ? this.frames[this.idx] : null;
-    },
+    frame() { return (this.frames && this.frames.length) ? this.frames[this.idx] : null; },
     reset() { this.t = 0; this.idx = 0; }
   };
 }
-
-
-// --- sprite helpers (keep aspect ratio) ---
 function drawSpriteFitW(img, x, y, targetW, flipX = false) {
   if (!img) return;
   const iw = img.width || 1, ih = img.height || 1;
-  const w = targetW;
-  const h = w * (ih / iw);      // preserve aspect
-  const hx = w / 2, hy = h / 2;
-
-  ctx.save();
-  ctx.translate(x, y);
-  if (flipX) ctx.scale(-1, 1);
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(img, -hx, -hy, w, h);
-  ctx.restore();
+  const w = targetW, h = w * (ih / iw), hx = w / 2, hy = h / 2;
+  ctx.save(); ctx.translate(x, y); if (flipX) ctx.scale(-1, 1);
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(img, -hx, -hy, w, h); ctx.restore();
 }
 
-// fire is queued to align with coreArt.launchFrac
-const pendingShots = [];
-
-// --- CORE ART (per-piece sizes + offsets; small lift when firing) ---
+// -------------------- Core art --------------------
 const coreArt = {
-  // throw timing
-  t: 0,
-  dur: 0.45,
-  throwing: false,
+  // timing
+  t: 0, dur: 0.5, throwing: false,
+  // layout
+  scale: 1.0, anchorY: 10,
+  baseW: 140, midW: 122, topW: 118, ballW: 28,
+  restBaseY: 10, restMidY: 35, restTopY: 10, restBallY: 15,
+  liftMid: 30, liftTop: 34, liftBall: 200,
+  launchFrac: 0.55, // release slightly closer to peak
 
-  // overall anchor and scale for the whole tower
-  scale: 1.0,
-  anchorY: 10,   // push the whole tower down a bit
+  // a reference to the currently attached projectile (if any)
+  attached: null,
 
-  // piece widths (not squares!) — tune these three to match your art
-  baseW: 140,    // base is widest
-  midW:  122,    // middle a bit narrower
-  topW:  118,    // top a bit narrower than middle
-  ballW:  28,    // the iron ball
+  startThrow(targetId) {
+    this.throwing = true; this.t = 0;
 
-  // resting vertical offsets (relative to core.y()+anchorY)
-  restBaseY:  10,
-  restMidY:   35,
-  restTopY:  10,
-  restBallY: 15,
+    // spawn the ONLY ball as a projectile attached to the tower
+    const bp = this.ballPos(0);
+    const p = {
+      state: 'attached', alive: true, targetId,
+      size: 24, x: bp.x, y: bp.y,
+      attachT: this.dur * this.launchFrac,
+      t: 0, ttl: 0, startX: 0, startY: 0, arcH: 0,
+      hitApplied: false,
+      explode: makeAnim('ball_explode', 18, false),
+    };
+    this.attached = p;
+    projectiles.push(p);
+  },
 
-  // lift amounts during the throw animation
-  liftMid:  30,
-  liftTop: 34,
-  liftBall: 200,
-
-  // the moment (within dur) we “launch” the ball and stop drawing it on the tower
-  launchFrac: 0.45,
-
-  startThrow() { this.throwing = true; this.t = 0; },
   update(dt) {
     if (!this.throwing) return;
     this.t += dt;
     if (this.t >= this.dur) { this.throwing = false; this.t = 0; }
   },
-  draw() {
+
+  // get the ball’s current decorative position (for following)
+  ballPos(kOverride = null) {
     const x = core.x();
-    const y = core.y() + this.anchorY;
-    const k = this.throwing ? Math.sin((this.t / this.dur) * Math.PI) : 0;
+    const y0 = core.y() + this.anchorY;
+    const k = (kOverride !== null) ? kOverride : (this.throwing ? Math.sin((this.t / this.dur) * Math.PI) : 0);
+    return { x, y: y0 + this.restBallY - this.liftBall * k };
+  },
+
+  draw() {
+    const x  = core.x();
+    const y0 = core.y() + this.anchorY;
+    const k  = this.throwing ? Math.sin((this.t / this.dur) * Math.PI) : 0;
 
     const imgBase = getImage('core_base');
     const imgMid  = getImage('core_mid');
     const imgTop  = getImage('core_top');
-    const ballImg = getImage('ball_idle');
 
-    if (imgBase) drawSpriteFitW(imgBase, x, y + this.restBaseY, this.baseW * this.scale);
-    if (imgMid)  drawSpriteFitW(imgMid,  x, y + this.restMidY  - this.liftMid  * k, this.midW  * this.scale);
-    if (imgTop)  drawSpriteFitW(imgTop,  x, y + this.restTopY  - this.liftTop  * k, this.topW  * this.scale);
+    if (imgBase) drawSpriteFitW(imgBase, x, y0 + this.restBaseY, this.baseW * this.scale);
+    if (imgMid)  drawSpriteFitW(imgMid,  x, y0 + this.restMidY  - this.liftMid  * k, this.midW  * this.scale);
+    if (imgTop)  drawSpriteFitW(imgTop,  x, y0 + this.restTopY  - this.liftTop  * k, this.topW  * this.scale);
 
-    // draw the parked ball only BEFORE launch moment
-    const showBall = !this.throwing || (this.t / this.dur) < this.launchFrac;
-    if (showBall && ballImg) {
-      drawSpriteFitW(ballImg, x, y + this.restBallY - this.liftBall * k, this.ballW);
+    // --- Decorative idle ball (only when NOT throwing and no 'attached' projectile) ---
+    const showDecorBall = !this.throwing && (!this.attached || this.attached.state !== 'attached');
+    if (showDecorBall) {
+      const ballImg = getImage('ball_idle');
+      if (ballImg) {
+        const bp = this.ballPos(0);
+        const size = this.ballW || 24;
+        drawSprite(ballImg, bp.x, bp.y, size);
+      }
     }
   }
 };
 
-
-
-
-// -------------------- Enemy factory (provided to Engine) --------------------
+// -------------------- Enemy factory --------------------
 Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
   const angle = Engine.rng() * Math.PI * 2;
   const spawnR = Math.min(canvas.width, canvas.height) * 0.45;
@@ -345,28 +328,18 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
   const goldOnDeath = Math.ceil((def.baseGold ?? 6) * (0.6 + waveNum * 0.2));
 
   const typeId = def.id || overrides.type || (def.boss ? 'boss' : 'enemy');
-  const profile = ANIM[def.boss ? 'boss' : typeId]; // boss uses boss profile
+
+  // allow per-enemy animation override via def.anim; fallback to ANIM table
+  const baseProfile = ANIM[def.boss ? 'boss' : typeId] || {};
+  const profile = def.anim ? { ...baseProfile, ...def.anim } : baseProfile;
 
   return {
     id: Math.random().toString(36).slice(2),
-    type: typeId,
-    angle,
-    dist: spawnR,
-    speed: def.speed,
-    radius: def.radius,
-    color: def.color,
-    hpMax, hp: hpMax,
-    state: 'advancing',
-    coreDamage: def.coreDamage,
-    attackPeriod: def.attackPeriod,
-    attackTimer: 0,
-    goldOnDeath,
-    boss: !!def.boss,
-
-    // Animation state (walk by default if profile exists)
-    anim: (profile && getFrames(profile.walk)) ? makeAnim(profile.walk, profile.fpsWalk, true) : null,
-
-    // attack switch guard
+    type: typeId, angle, dist: spawnR, speed: def.speed, radius: def.radius, color: def.color,
+    hpMax, hp: hpMax, state: 'advancing',
+    coreDamage: def.coreDamage, attackPeriod: def.attackPeriod, attackTimer: 0,
+    goldOnDeath, boss: !!def.boss,
+    anim: (profile && getFrames(profile.walk)) ? makeAnim(profile.walk, profile.fpsWalk ?? 8, true) : null,
     _switchedToAttack: false,
 
     ...overrides,
@@ -378,27 +351,21 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
 
     _switchToAttack(){
       if (this._switchedToAttack) return;
-      if (profile && getFrames(profile.attack)) {
-        this.anim = makeAnim(profile.attack, profile.fpsAtk, true);
-      }
+      if (profile && getFrames(profile.attack)) this.anim = makeAnim(profile.attack, profile.fpsAtk ?? 10, true);
       this._switchedToAttack = true;
     },
 
     update(dt){
-      coreArt.update(dt);
       const p = this.pos;
-      let slowFactor = 0;
-      if (frost.isIn(p.x, p.y)) slowFactor = this.boss ? Math.min(frost.slow, 0.20) : frost.slow;
-      const speedMul = 1 - slowFactor;
-      const atkMul   = 1 / (1 - slowFactor);
+
+      // Let mods inject movement/attack multipliers (e.g., slows, hastes, debuffs)
+      const mods = Engine.applyEnemyModifiers(this, dt, { now: performance.now()/1000, pos: p });
+      const speedMul = mods.speedMul;
+      const atkMul   = mods.atkMul;
 
       if (this.state === 'advancing') {
         this.dist = Math.max(0, this.dist - this.speed * speedMul * dt);
-        if (this.dist <= core.radius) {
-          this.state = 'attacking';
-          this.attackTimer = 0;
-          this._switchToAttack();
-        }
+        if (this.dist <= core.radius) { this.state = 'attacking'; this.attackTimer = 0; this._switchedToAttack || this._switchToAttack(); }
       } else {
         this.attackTimer -= dt;
         if (this.attackTimer <= 0) {
@@ -419,30 +386,24 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
       ctx.beginPath(); ctx.ellipse(p.x+2, p.y+6, this.radius*0.9, this.radius*0.5, 0, 0, Math.PI*2); ctx.fill();
 
-      // tether when attacking
       if (this.state === 'attacking') {
         ctx.strokeStyle = 'rgba(255,120,80,0.6)'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(core.x(), core.y()); ctx.stroke();
       }
 
-      // sprite (reduce bob while attacking)
+      const defaultFacesRight = (profile?.face ?? 'right') === 'right';
+      const coreIsRight = core.x() > p.x;
+      const flipX = defaultFacesRight ? !coreIsRight : coreIsRight;
+
       const baseSize = profile?.size ?? (this.boss ? 72 : 56);
       const bob  = (this.state === 'attacking') ? 0.5 : Math.sin(performance.now()/220 + this.id.length) * 1.5;
-
-      // Face horizontally toward the core
-      const coreIsRight = core.x() > p.x;
-      const defaultFacesRight = (profile?.face ?? 'right') === 'right';
-      const flipX = defaultFacesRight ? !coreIsRight : coreIsRight;
 
       let drew = false;
       if (this.anim) {
         const frame = this.anim.frame();
         if (frame) { drawSprite(frame, p.x, p.y + bob, baseSize, flipX); drew = true; }
       }
-      if (!drew) {
-        ctx.fillStyle = this.color;
-        ctx.beginPath(); ctx.arc(p.x, p.y, this.radius, 0, Math.PI*2); ctx.fill();
-      }
+      if (!drew) { ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(p.x, p.y, this.radius, 0, Math.PI*2); ctx.fill(); }
 
       // HP bar
       const w = this.boss ? 36 : 20, h = 4, x = p.x - w/2, y = p.y - (this.boss ? 42 : 30);
@@ -453,28 +414,6 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
 });
 
 // -------------------- Projectiles --------------------
-function createArcProjectile(targetId) {
-  const sx = core.x(), sy = core.y() - 8;
-  const tgt = enemies.find(e => e.id === targetId);
-  const ex = tgt ? tgt.pos.x : sx, ey = tgt ? tgt.pos.y : sy;
-  const dist0 = Math.hypot(ex - sx, ey - sy);
-
-  return {
-    state: 'arc',
-    alive: true,
-    targetId,
-    // parametric flight
-    t: 0,
-    ttl: clamp(0.38 + dist0 / 800, 0.38, 0.75), // 0.38–0.75s
-    startX: sx, startY: sy,
-    x: sx, y: sy,
-    arcH: 60 + dist0 * 0.35,  // arc height scales with distance
-    size: 24,
-    hitApplied: false,
-    explode: makeAnim('ball_explode', 18, false)
-  };
-}
-
 function pickTarget(){
   let best = null, bestDist = Infinity;
   for (const e of enemies) {
@@ -484,8 +423,8 @@ function pickTarget(){
   return best;
 }
 
-// -------------------- Spawner (loop-driven) --------------------
-const spawners = []; // { type, remaining, cadence, timer }
+// -------------------- Spawner --------------------
+const spawners = [];
 function spawnBatch(type, count, cadenceSec){
   if (S.defeated) return;
   spawners.push({ type, remaining: count, cadence: cadenceSec, timer: 0 });
@@ -497,22 +436,24 @@ function loop(now){
   let dt = Math.min((now - last)/1000, 0.05);
   last = now;
 
-  // HARD PAUSE: freeze all logic, keep current frame
-  if (S.paused) {
-    draw();
-    requestAnimationFrame(loop);
-    return;
-  }
+  if (S.paused) { draw(); requestAnimationFrame(loop); return; }
 
-  coreArt.update(dt);
+  // apply timeScale first, then tick the core animation ONCE per frame
   dt *= Math.max(1, S.timeScale);
+  coreArt.update(dt);
+
   update(dt); draw(); requestAnimationFrame(loop);
 }
 
-// Start AFTER assets are loaded
+// Start AFTER assets are loaded (with mod-friendly bootstrap hooks)
 (async () => {
-  try { await loadAssets(ASSETS); }
-  catch (e) { console.warn('Asset load failed:', e); }
+  try {
+    Engine.emit('bootstrap:beforeAssets');
+    await loadAssets(ASSETS);
+    Engine.emit('bootstrap:afterAssets');
+  } catch (e) {
+    console.warn('Asset load failed:', e);
+  }
   requestAnimationFrame(loop);
 })();
 
@@ -520,72 +461,74 @@ function update(dt){
   // enemy updates
   for (const e of enemies) e.update(dt);
 
-  // core fire
+  // core fire — spawn the attached projectile *inside* startThrow
   if (!S.defeated) {
     core._fireTimer -= dt;
     if (core._fireTimer <= 0) {
       const target = pickTarget();
       if (target) {
-        coreArt.startThrow();                       // start wind-up
-        pendingShots.push({                         // spawn later at launch moment
-          targetId: target.id,
-          t: coreArt.dur * coreArt.launchFrac
-        });
+        coreArt.startThrow(target.id);
         core._fireTimer = 1 / core.fireRate;
       }
     }
   }
 
-  // launch queued shots when their timers elapse
-  for (let i = pendingShots.length - 1; i >= 0; i--) {
-    pendingShots[i].t -= dt;
-    if (pendingShots[i].t <= 0) {
-      projectiles.push(createArcProjectile(pendingShots[i].targetId));
-      pendingShots.splice(i, 1);
-    }
-  }
-
-
+  // spawners
   for (let i = spawners.length - 1; i >= 0; i--) {
-  const s = spawners[i];
-  s.timer -= dt;
-  while (s.timer <= 0 && s.remaining > 0) {
-    enemies.push(Engine.spawnEnemy(s.type, S.wave));
-    s.remaining--;
-    s.timer += s.cadence;
-  }
-  if (s.remaining <= 0) spawners.splice(i, 1);
+    const s = spawners[i];
+    s.timer -= dt;
+    while (s.timer <= 0 && s.remaining > 0) {
+      enemies.push(Engine.spawnEnemy(s.type, S.wave));
+      s.remaining--; s.timer += s.cadence;
+    }
+    if (s.remaining <= 0) spawners.splice(i, 1);
   }
 
   // projectiles
   for (const p of projectiles) {
     if (!p.alive) continue;
 
-    if (p.state === 'arc') {
+    if (p.state === 'attached') {
+      // follow the animated ball on the tower
+      const bp = coreArt.ballPos();
+      p.x = bp.x; p.y = bp.y;
+      p.attachT -= dt;
+
+      if (p.attachT <= 0) {
+        // Launch now — compute trajectory to *current* target from current position
+        const tgt = enemies.find(e => e.id === p.targetId);
+        if (!tgt) { p.alive = false; continue; }
+        const end = tgt.pos;
+        p.state = 'arc';
+        p.t = 0; p.startX = p.x; p.startY = p.y;
+        const dist0 = Math.hypot(end.x - p.startX, end.y - p.startY);
+        p.ttl = clamp(0.38 + dist0 / 800, 0.38, 0.75);
+        p.arcH = 60 + dist0 * 0.25; // lower arc height to avoid upward-looking float
+
+        // clear the core’s attached reference when we launch
+        if (coreArt.attached === p) coreArt.attached = null;
+      }
+
+    } else if (p.state === 'arc') {
       const tgt = enemies.find(e => e.id === p.targetId);
       if (!tgt) { p.alive = false; continue; }
 
-      // slightly home each frame (handles moving targets)
       const end = tgt.pos;
+      p.t += dt; const u = Math.min(1, p.t / p.ttl);
 
-      p.t += dt;
-      const u = Math.min(1, p.t / p.ttl);       // 0..1 flight progress
-
-      // linear interpolation from start to (current) end
+      // linear interpolation
       const lx = p.startX + (end.x - p.startX) * u;
       const ly = p.startY + (end.y - p.startY) * u;
 
-      // parabola for height: 4u(1-u) peaks at 0.5
-      const yArc = p.arcH * (4 * u * (1 - u));
+      // "drop" curve: only goes down from the release point (no extra upward bump)
+      const yDrop = p.arcH * (u * (1 - u)); // 0 → peak at mid → 0
       p.x = lx;
-      p.y = ly - yArc;
+      p.y = ly + yDrop; // add downward bulge (screen +y is down)
 
-      // hit when close enough or when u reaches 1
       const hitR = (tgt.radius || 16) + 10;
       if (dist(p.x, p.y, end.x, end.y) <= hitR || u >= 1) {
         if (!p.hitApplied) { applyDamage(tgt, core.damage); p.hitApplied = true; }
-        p.state = 'explode';
-        p.explode.reset();
+        p.state = 'explode'; p.explode.reset();
       }
 
     } else { // explode
@@ -594,15 +537,13 @@ function update(dt){
       if (p.explode.idx >= frames.length - 1) p.alive = false;
     }
   }
-  for (let i = projectiles.length - 1; i >= 0; i--) {
-    if (!projectiles[i].alive) projectiles.splice(i, 1);
+  for (let i = projectiles.length - 1; i >= 0; i--) if (!projectiles[i].alive) projectiles.splice(i, 1);
+
+  // effects (mods can push into effects; we just tick & prune)
+  for (let i=effects.length-1; i>=0; i--) {
+    const keep = effects[i].draw?.(dt);
+    if (!keep) effects.splice(i,1);
   }
-
-
-  // abilities / effects
-  if (nova.cdLeft  > 0) nova.cdLeft  = Math.max(0, nova.cdLeft  - dt);
-  if (frost.cdLeft > 0) frost.cdLeft = Math.max(0, frost.cdLeft - dt);
-  for (let i=effects.length-1; i>=0; i--) { const keep = effects[i].draw?.(dt); if (!keep) effects.splice(i,1); }
 
   // deaths / gold
   for (let i=enemies.length-1; i>=0; i--) {
@@ -616,16 +557,13 @@ function update(dt){
 
   // defeat
   if (!S.defeated && core.hp <= 0) {
-    S.defeated = true;
-    S.waveRunning = false;
-    spawners.length = 0;
+    S.defeated = true; S.waveRunning = false; spawners.length = 0;
     setWaveStatus('Defeated ❌  (Press Reset)');
   }
 
   // wave end
   if (!S.defeated && S.waveRunning && spawners.length === 0 && enemies.length === 0){
-    S.waveRunning = false;
-    setWaveStatus('Cleared ✅');
+    S.waveRunning = false; setWaveStatus('Cleared ✅');
     Engine.emit('wave:end', { wave: S.wave });
     if (S.autoStart) startWave();
   }
@@ -636,10 +574,11 @@ function update(dt){
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  // decorative stacked art
+  // core (no decorative ball)
   coreArt.draw();
 
-  frost.drawOverlay();
+  // Let mods draw any overlays (auras, domes, markers, etc.)
+  Engine.drawOverlays(ctx);
 
   for (const e of enemies) e.draw();
 
@@ -655,66 +594,59 @@ function draw(){
     ctx.textAlign = 'center'; ctx.fillText('BOSS', canvas.width/2, y - 2);
   }
 
-  // projectiles (ball in flight or explosion frames)
+  // projectiles (the ONLY ball you see)
   for (const p of projectiles) {
-    if (p.state === 'arc') {
+    if (p.state === 'attached' || p.state === 'arc') {
       const ball = getImage('ball_idle');
       if (ball) drawSprite(ball, p.x, p.y, p.size || 24);
       else { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); }
     } else {
       const frame = p.explode?.frame();
-      if (frame) drawSprite(frame, p.x, p.y, (p.size || 24) * 1.5, false);
+      if (frame) drawSprite(frame, p.x, p.y, (p.size || 24) * 1.5);
     }
   }
-
-  // tiny debug HUD (optional)
-  ctx.fillStyle='#9fb'; ctx.font='14px system-ui, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(`Enemies: ${enemies.length}`, 12, 20);
-  ctx.fillText(`Wave: ${S.wave}`, 12, 38);
 }
 
-// -------------------- Game actions (used by Vue) --------------------
+// -------------------- Game actions --------------------
 function startWave() {
   if (S.waveRunning || S.defeated) return;
-  S.wave += 1;
-  S.waveRunning = true;
+  S.wave += 1; S.waveRunning = true;
   Engine.emit('wave:start', { wave: S.wave });
   const baseCadence = Math.max(0.25, 0.55 - S.wave * 0.02);
   const packs = waveRecipe(S.wave);
   if (packs.some(p => p.boss)) setWaveStatus('Boss!'); else setWaveStatus('Running…');
   for (const p of packs) spawnBatch(p.type, p.count, baseCadence * (p.cadenceMul || 1));
 }
-
 function resetGame() {
   enemies.length = 0; projectiles.length = 0; effects.length = 0;
-  frost.zones.length = 0; nova.cdLeft = 0; frost.cdLeft = 0;
   spawners.length = 0;
   S.wave = 0; S.waveRunning = false; S.defeated = false;
-  core.hp = core.hpMax;
-  S.gold = 0;
-  upgrades.dmg = upgrades.rof = upgrades.range = 0;
-  core.applyUpgrades();
-  setWaveStatus('No wave');
-  saveGame();
-  notifySubscribers(buildSnapshot());
+  core.hp = core.hpMax; S.gold = 0;
+  upgrades.dmg = upgrades.rof = upgrades.range = 0; core.applyUpgrades();
+  // Let mods clear their own state (zones, timers, etc.)
+  Engine.runResetHooks();
+  setWaveStatus('No wave'); saveGame(); notifySubscribers(buildSnapshot());
 }
-
 function buyUpgrade(type) {
-  const c = cost(type);
+  const def = Engine.registry?.upgrades?.[type];
+  if (!def) return;
+  const level = upgrades[type] | 0;
+  const c = (typeof def.cost === 'function') ? def.cost(level) : 0;
   if (S.gold < c) return;
   S.gold = S.gold - c;
-  upgrades[type]++; core.applyUpgrades();
-  saveGame();
-  notifySubscribers(buildSnapshot());
+  upgrades[type] = level + 1;
+  core.applyUpgrades(); // base stats recalculated
+  // apply mod-defined upgrade effects on top of base
+  if (typeof def.apply === 'function') def.apply(core, upgrades[type]);
+  saveGame(); notifySubscribers(buildSnapshot());
 }
-
 function castAbility(which) {
-  if (which === 'nova'  && nova.cast())  { saveGame(); notifySubscribers(buildSnapshot()); }
-  if (which === 'frost' && frost.cast()) { saveGame(); notifySubscribers(buildSnapshot()); }
+  const ok = Engine.castAbility(which);
+  if (ok) { saveGame(); notifySubscribers(buildSnapshot()); }
+  return ok;
 }
 
-// Keybindings
+// Keybindings (UI may still wire specific ones; mods can add more hotkeys)
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === 'q') castAbility('nova');
@@ -724,17 +656,10 @@ window.addEventListener('keydown', (e) => {
 // -------------------- Engine API (for Vue) --------------------
 window.engine = {
   getSnapshot: buildSnapshot,
-  subscribe, // from state.js
+  subscribe,
   actions: {
-    startWave,
-    reset: resetGame,
-    buy: buyUpgrade,
-    cast: castAbility,
-    loadSave: loadGame,
-    wipeSave: wipeSave,
-    saveNow: saveGame,
-    hasSave: hasSave,
-
+    startWave, reset: resetGame, buy: buyUpgrade, cast: castAbility,
+    loadSave: loadGame, wipeSave: wipeSave, saveNow: saveGame, hasSave: hasSave,
     setPaused: (v) => { S.paused = !!v; notifySubscribers(buildSnapshot()); },
     togglePause: () => { S.paused = !S.paused; notifySubscribers(buildSnapshot()); },
     setSpeed: (n) => { S.timeScale = Math.max(1, n|0); notifySubscribers(buildSnapshot()); },

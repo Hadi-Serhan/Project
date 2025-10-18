@@ -1,60 +1,10 @@
-import { cx, cy, ctx, core, enemies, effects, clamp } from './state.js';
-import { dist } from './state.js';
+// src/abilities.js
+// Ability system bridge + dynamic facades (no built-in abilities here).
 
-export const nova = {
-  radius: 110,
-  cd: 10, cdLeft: 0,
-  damageBase: 35, damageCoef: 0.6,
-  cast() {
-    if (this.cdLeft > 0) return false;
-    const dmg = this.damageBase + this.damageCoef * core.damage;
-    for (const e of enemies) {
-      const p = e.pos;
-      if (dist(core.x(), core.y(), p.x, p.y) <= this.radius) {
-        e.hp -= dmg;
-        if (e.state === 'attacking') e.dist += 6;
-      }
-    }
-    effects.push(makeRingEffect(core.x(), core.y(), this.radius));
-    this.cdLeft = this.cd;
-    return true;
-  }
-};
+import Engine from './engine.js';
+import { ctx, clamp } from './state.js';
 
-export const frost = {
-  radius: 140,
-  cd: 12, cdLeft: 0,
-  slow: 0.35, duration: 5.0,
-  zones: [], // {x,y,r,until}
-  cast() {
-    if (this.cdLeft > 0) return false;
-    this.zones.length = 0;
-    this.zones.push({ x: core.x(), y: core.y(), r: this.radius, until: performance.now()/1000 + this.duration });
-    this.cdLeft = this.cd;
-    return true;
-  },
-  isIn(x, y) {
-    const now = performance.now()/1000;
-    for (let i=this.zones.length-1; i>=0; i--) if (this.zones[i].until <= now) this.zones.splice(i,1);
-    if (!this.zones.length) return false;
-    const z = this.zones[0];
-    const dx = x - z.x, dy = y - z.y;
-    return (dx*dx + dy*dy) <= (z.r*z.r);
-  },
-  drawOverlay() {
-    if (!this.zones.length) return;
-    const z = this.zones[0];
-    const now = performance.now()/1000;
-    const t = clamp((z.until - now) / this.duration, 0, 1);
-    ctx.fillStyle = `rgba(120,180,255,${0.15 * t + 0.1})`;
-    ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI*2); ctx.fill();
-    ctx.strokeStyle = `rgba(120,180,255,${0.6 * t})`;
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI*2); ctx.stroke();
-  }
-};
-
-// simple visual ring effect for Nova
+// --------- tiny visual helper mods can import ----------
 function makeRingEffect(x, y, r){
   return {
     t: 0, dur: 0.35, x, y, r,
@@ -68,3 +18,87 @@ function makeRingEffect(x, y, r){
     }
   };
 }
+export const utils = { makeRingEffect };
+
+// --------- Engine ability bridge ----------
+function abilityCast(id, args = {}) {
+  const ab = Engine.registry?.abilities?.[id];
+  if (!ab || ab.enabled === false) return false;
+  if (typeof ab.cdLeft === 'number' && ab.cdLeft > 0) return false;
+  if (typeof ab.cast !== 'function') return false;
+
+  // IMPORTANT: bind `this` to the ability object
+  const ok = !!ab.cast.call(ab, args);
+  if (ok && typeof ab.cd === 'number' && ab.cd > 0) ab.cdLeft = ab.cd;
+  return ok;
+}
+Engine.setAbilityBridge({
+  register(){ /* Engine.registry already holds the def */ },
+  remove(){},
+  cast: abilityCast,
+});
+
+// --------- global cooldown ticker for ALL abilities ----------
+(function tickCooldowns(){
+  let last = performance.now()/1000;
+  function loop(){
+    const now = performance.now()/1000, dt = now - last; last = now;
+    const reg = Engine.registry?.abilities || {};
+    for (const [, ab] of Object.entries(reg)) {
+      if (typeof ab.cdLeft === 'number' && ab.cdLeft > 0) {
+        ab.cdLeft = Math.max(0, ab.cdLeft - dt);
+      }
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+
+// --------- dynamic facades so main.js can keep importing { nova, frost } ----------
+function abilityFacade(id){
+  const proxy = {};
+  const defaults = { title:'', hint:'', enabled:true, cd:0, cdLeft:0 };
+
+  // standard fields (get/set straight to the registry object)
+  for (const k of Object.keys(defaults)) {
+    Object.defineProperty(proxy, k, {
+      get(){ return Engine.registry?.abilities?.[id]?.[k] ?? defaults[k]; },
+      set(v){ const ab = Engine.registry?.abilities?.[id]; if (ab) ab[k] = v; },
+      enumerable: true,
+    });
+  }
+
+  // expose `zones` so resetGame() can do frost.zones.length = 0 safely
+  Object.defineProperty(proxy, 'zones', {
+    get(){
+      const ab = Engine.registry?.abilities?.[id];
+      // always return an array (never undefined)
+      return ab?.zones ?? (ab ? (ab.zones = []) : []);
+    },
+    set(v){
+      const ab = Engine.registry?.abilities?.[id];
+      if (ab) ab.zones = Array.isArray(v) ? v : [];
+    },
+    enumerable: true,
+  });
+
+  // cast via engine so cooldown is applied centrally (bind happens inside abilityCast)
+  proxy.cast = (args) => Engine.castAbility?.(id, args) ?? false;
+
+  // call helpers with proper `this` binding
+  proxy.isIn = (x,y) => {
+    const ab = Engine.registry?.abilities?.[id];
+    const fn = ab?.isIn;
+    return typeof fn === 'function' ? !!fn.call(ab, x, y) : false;
+  };
+  proxy.drawOverlay = () => {
+    const ab = Engine.registry?.abilities?.[id];
+    const fn = ab?.drawOverlay;
+    if (typeof fn === 'function') return fn.call(ab);
+  };
+
+  return proxy;
+}
+
+export const nova  = abilityFacade('nova');   // if a content pack defines 'nova'
+export const frost = abilityFacade('frost');  // if a content pack defines 'frost'
