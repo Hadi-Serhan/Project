@@ -44,29 +44,30 @@ const TROLL_ATTACK_LAST  = 9;
 const BALL_EXP_LAST      = 5;
 
 // -------------------- Asset manifest --------------------
-// NOTE: index.html lives at repo root now, so assets are under "mage-core/assets".
-const ASSET_ROOT = 'mage-core/assets/';
+// -------------------- Asset manifest --------------------
+const A = (p) => new URL(`../assets/${p}`, import.meta.url).toString();
 
 const ASSETS = {
-  troll_walk:   { seq: { base: `${ASSET_ROOT}troll/Walking/Troll_03_1_WALK_`,    start: 0, end: TROLL_WALK_LAST,   pad: 3, ext: '.png' } },
-  troll_attack: { seq: { base: `${ASSET_ROOT}troll/Slashing/Troll_03_1_ATTACK_`, start: 0, end: TROLL_ATTACK_LAST, pad: 3, ext: '.png' } },
+  troll_walk:   { seq: { base: A('troll/Walking/Troll_03_1_WALK_'),    start: 0, end: TROLL_WALK_LAST,   pad: 3, ext: '.png' } },
+  troll_attack: { seq: { base: A('troll/Slashing/Troll_03_1_ATTACK_'), start: 0, end: TROLL_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  golem_walk:   { seq: { base: `${ASSET_ROOT}golem/Walking/0_Golem_Walking_`,    start: 0, end: GOLEM_WALK_LAST,   pad: 3, ext: '.png' } },
-  golem_attack:{ seq: { base: `${ASSET_ROOT}golem/Slashing/0_Golem_Slashing_`,   start: 0, end: GOLEM_ATTACK_LAST, pad: 3, ext: '.png' } },
+  golem_walk:   { seq: { base: A('golem/Walking/0_Golem_Walking_'),    start: 0, end: GOLEM_WALK_LAST,   pad: 3, ext: '.png' } },
+  golem_attack:{ seq: { base: A('golem/Slashing/0_Golem_Slashing_'),   start: 0, end: GOLEM_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  skeleton_run:    { seq: { base: `${ASSET_ROOT}skeleton/Running/0_Skeleton_Crusader_Running_`,   start: 0, end: SKELE_RUN_LAST,    pad: 3, ext: '.png' } },
-  skeleton_attack: { seq: { base: `${ASSET_ROOT}skeleton/Slashing/0_Skeleton_Crusader_Slashing_`, start: 0, end: SKELE_ATTACK_LAST, pad: 3, ext: '.png' } },
+  skeleton_run:    { seq: { base: A('skeleton/Running/0_Skeleton_Crusader_Running_'),   start: 0, end: SKELE_RUN_LAST,    pad: 3, ext: '.png' } },
+  skeleton_attack: { seq: { base: A('skeleton/Slashing/0_Skeleton_Crusader_Slashing_'), start: 0, end: SKELE_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  necro_walk:   { seq: { base: `${ASSET_ROOT}necromancer/Walking/0_Necromancer_of_the_Shadow_Walking_`,   start: 0, end: NECRO_WALK_LAST,   pad: 3, ext: '.png' } },
-  necro_attack: { seq: { base: `${ASSET_ROOT}necromancer/Slashing/0_Necromancer_of_the_Shadow_Slashing_`, start: 0, end: NECRO_ATTACK_LAST, pad: 3, ext: '.png' } },
+  necro_walk:   { seq: { base: A('necromancer/Walking/0_Necromancer_of_the_Shadow_Walking_'),   start: 0, end: NECRO_WALK_LAST,   pad: 3, ext: '.png' } },
+  necro_attack: { seq: { base: A('necromancer/Slashing/0_Necromancer_of_the_Shadow_Slashing_'), start: 0, end: NECRO_ATTACK_LAST, pad: 3, ext: '.png' } },
 
-  ball_idle: `${ASSET_ROOT}projectiles/1.png`,
-  ball_explode: { seq: { base: `${ASSET_ROOT}projectiles/`, start: 2, end: BALL_EXP_LAST, pad: 0, ext: '.png' } },
+  ball_idle:     A('projectiles/1.png'),
+  ball_explode: { seq: { base: A('projectiles/'), start: 2, end: BALL_EXP_LAST, pad: 0, ext: '.png' } },
 
-  core_top:  `${ASSET_ROOT}core/1.png`,
-  core_mid:  `${ASSET_ROOT}core/2.png`,
-  core_base: `${ASSET_ROOT}core/3.png`,
+  core_top:  A('core/1.png'),
+  core_mid:  A('core/2.png'),
+  core_base: A('core/3.png'),
 };
+
 
 // -------------------- Per-type animation profiles --------------------
 const ANIM = {
