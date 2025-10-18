@@ -4,9 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Mage Core</title>
-  <link rel="stylesheet" href="style.css">
-  <!-- Silence favicon 404 in dev -->
-  <link rel="icon" href="data:,">
+
+    <link rel="stylesheet" href="./style.css">
+    <link rel="icon" href="data:,"> 
+    
 </head>
 <body>
 <div id="wrap">
@@ -15,7 +16,7 @@
   <!-- Vue UI (everything reactive lives inside #app) -->
   <div id="app" class="ui">
 
-    <!-- Top HUD (inside #app so {{ }} works) -->
+    <!-- Top HUD -->
     <div class="hud">
       <div class="hud-group">
         <span class="tag">Wave</span>
@@ -35,12 +36,11 @@
     <!-- Controls -->
     <div class="card controls">
       <div class="row wrap">
-        <button class="btn primary"
-                @click="startWave" :disabled="waveRunning || defeated">Start Wave</button>
+        <button class="btn primary" @click="startWave" :disabled="waveRunning || defeated">Start Wave</button>
 
-        <button class="btn"
-                :class="{warning: paused}"
-                @click="togglePause">{{ paused ? 'Resume' : 'Pause' }}</button>
+        <button class="btn" :class="{warning: paused}" @click="togglePause">
+          {{ paused ? 'Resume' : 'Pause' }}
+        </button>
 
         <label class="control">
           <span class="lbl">Speed</span>
@@ -72,29 +72,12 @@
     <div class="card">
       <h3>Upgrades</h3>
       <div class="grid3">
-        <div class="upgrade">
-          <div class="u-title">Damage</div>
-          <button class="btn block"
-                  @click="buy('dmg')"
-                  :disabled="gold < costs.dmg">Buy ({{ costs.dmg }})</button>
-        </div>
-        <div class="upgrade">
-          <div class="u-title">Fire Rate</div>
-          <button class="btn block"
-                  @click="buy('rof')"
-                  :disabled="gold < costs.rof">Buy ({{ costs.rof }})</button>
-        </div>
-        <div class="upgrade">
-          <div class="u-title">Range</div>
-          <button class="btn block"
-                  @click="buy('range')"
-                  :disabled="gold < costs.range">Buy ({{ costs.range }})</button>
-        </div>
-        <div class="upgrade">
-          <div class="u-title">Haste+</div>
-          <button class="btn block"
-                  @click="buy('haste_plus')"
-                  :disabled="gold < costs.haste_plus">Buy ({{ costs.haste_plus }})</button>
+        <div class="upgrade" v-for="u in upgradesList" :key="u.id">
+          <div class="u-title">{{ u.title }}</div>
+          <div class="meta" v-if="u.desc">{{ u.desc }}</div>
+          <button class="btn block" @click="buy(u.id)" :disabled="gold < u.cost">
+            Buy ({{ u.cost }})
+          </button>
         </div>
       </div>
     </div>
@@ -104,19 +87,12 @@
       <h3>Abilities</h3>
       <div class="row wrap">
         <button class="btn ability"
-                :class="{cooling: cd.nova > 0}"
-                @click="cast('nova')"
-                :disabled="cd.nova > 0">
-          Fire Nova <span class="hint">(Q)</span>
-          <span class="cooldown" v-if="cd.nova > 0">{{ cd.nova.toFixed(1) }}s</span>
-        </button>
-
-        <button class="btn ability"
-                :class="{cooling: cd.frost > 0}"
-                @click="cast('frost')"
-                :disabled="cd.frost > 0">
-          Frost Dome <span class="hint">(W)</span>
-          <span class="cooldown" v-if="cd.frost > 0">{{ cd.frost.toFixed(1) }}s</span>
+                v-for="a in abilitiesList" :key="a.id"
+                :class="{cooling: a.cdLeft > 0}"
+                @click="cast(a.id)"
+                :disabled="a.cdLeft > 0 || !a.enabled">
+          {{ a.title }} <span class="hint" v-if="a.hint">({{ a.hint }})</span>
+          <span class="cooldown" v-if="a.cdLeft > 0">{{ a.cdLeft.toFixed(1) }}s</span>
         </button>
       </div>
     </div>
@@ -129,14 +105,21 @@
 
 <!-- Bootstrap: load mods first, then the game and UI -->
 <script type="module">
+  // Ensure Engine exists globally before mods run
+  import Engine from './mage-core/src/engine.js';
+  window.Engine = Engine;
+  window.engine = {};
+
+  // 1) Load all mods (reads ./mage-core/mods/mod-list.json)
   import { loadAllMods } from './mage-core/src/mod-loader.js';
-  try {
-    await loadAllMods();                 // 1) load /mods/*.js listed in mod-loader
-  } catch (e) {
-    console.warn('[bootstrap] mod loading failed:', e);
-  }
-  await import('./mage-core/src/main.js');         // 2) boot the engine/game
-  await import('./mage-core/src/ui/vue-app.js');   // 3) mount the Vue UI (dynamic lists)
+  try { await loadAllMods(); }
+  catch (e) { console.warn('[bootstrap] mod loading failed:', e); }
+
+  // 2) Boot the engine/game
+  await import('./mage-core/src/main.js');
+
+  // 3) Mount the Vue UI (dynamic lists; no hardcoded abilities/upgrades)
+  await import('./mage-core/src/ui/vue-app.js');
 </script>
 </body>
 </html>
