@@ -49,7 +49,7 @@ const ASSETS = {
   troll_attack: { seq: { base: 'assets/troll/Slashing/Troll_03_1_ATTACK_', start: 0, end: TROLL_ATTACK_LAST, pad: 3, ext: '.png' } },
 
   golem_walk:   { seq: { base: 'assets/golem/Walking/0_Golem_Walking_',    start: 0, end: GOLEM_WALK_LAST,   pad: 3, ext: '.png' } },
-  golem_attack: { seq: { base: 'assets/golem/Slashing/0_Golem_Slashing_',   start: 0, end: GOLEM_ATTACK_LAST, pad: 3, ext: '.png' } },
+  golem_attack: { seq: { base: 'assets/golem/Slashing/0_Golem_Slashing_',  start: 0, end: GOLEM_ATTACK_LAST, pad: 3, ext: '.png' } },
 
   skeleton_run:    { seq: { base: 'assets/skeleton/Running/0_Skeleton_Crusader_Running_',   start: 0, end: SKELE_RUN_LAST,    pad: 3, ext: '.png' } },
   skeleton_attack: { seq: { base: 'assets/skeleton/Slashing/0_Skeleton_Crusader_Slashing_', start: 0, end: SKELE_ATTACK_LAST, pad: 3, ext: '.png' } },
@@ -64,7 +64,6 @@ const ASSETS = {
   core_mid:  'assets/core/2.png',
   core_base: 'assets/core/3.png',
 };
-
 
 // -------------------- Per-type animation profiles --------------------
 const ANIM = {
@@ -116,9 +115,8 @@ function serialize() {
   return {
     wave: S.wave, waveRunning: false, defeated: false,
     gold: S.gold, coreHP: core.hp, upgrades: { ...upgrades },
-    // Ability cooldowns are mod content; mods may save their own state if needed.
     savedAt: Date.now(), timeScale: S.timeScale, autoStart: S.autoStart,
-    mods: [], // reserved for mod-managed state
+    mods: [],
   };
 }
 function hasSave() { try { return !!localStorage.getItem(SAVE_KEY); } catch { return false; } }
@@ -165,7 +163,6 @@ function snapshotAbilities() {
       cdLeft: Number.isFinite(a.cdLeft) ? a.cdLeft : 0
     });
   }
-  // stable order: by title then id
   out.sort((x,y) => (x.title||'').localeCompare(y.title||'') || x.id.localeCompare(y.id));
   return out;
 }
@@ -192,28 +189,49 @@ function buildSnapshot(){
   };
 }
 
-// -------------------- FX helpers --------------------
-function makeFloatText(x, y, text, color='#ffd166') {
+// -------------------- FX helpers (restored) --------------------
+function makeFloatText(x, y, text, color = '#ffd166') {
   return {
     t: 0, dur: 0.8, x, y, vy: -36,
-    draw(dt){
+    draw(dt) {
       this.t += dt;
-      const k = clamp(this.t/this.dur, 0, 1), alpha = 1 - k;
+      const k = clamp(this.t / this.dur, 0, 1);
+      const alpha = 1 - k;
       const yy = this.y + this.vy * this.t;
-      ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = color;
-      ctx.font = 'bold 14px system-ui, sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(text, this.x, yy); ctx.restore();
-      return this.t < this.dur;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color;
+      ctx.font = 'bold 14px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(text, this.x, yy);
+      ctx.restore();
+      return this.t < this.dur; // keep until done
     }
   };
 }
-function applyDamage(target, dmg){
+
+function applyDamage(target, dmg) {
   target.hp -= dmg;
   const p = target.pos;
-  effects.push(makeFloatText(p.x, p.y - target.radius - 12, Math.ceil(dmg).toString(), '#ffd166'));
+  effects.push(
+    makeFloatText(
+      p.x,
+      p.y - target.radius - 12,
+      Math.ceil(dmg).toString(),
+      '#ffd166'
+    )
+  );
 }
-function coreTookDamage(amount){
-  effects.push(makeFloatText(core.x(), core.y() - 28, `-${amount}`, '#ff6b6b'));
+
+function coreTookDamage(amount) {
+  effects.push(
+    makeFloatText(
+      core.x(),
+      core.y() - 28,
+      `-${amount}`,
+      '#ff6b6b'
+    )
+  );
 }
 
 // -------------------- Sprite helpers --------------------
@@ -433,14 +451,16 @@ function spawnBatch(type, count, cadenceSec){
 
 // -------------------- Loop --------------------
 let last = performance.now();
+let _lastDt = 0; // <<< keep dt for effects rendering
 function loop(now){
   let dt = Math.min((now - last)/1000, 0.05);
   last = now;
 
-  if (S.paused) { draw(); requestAnimationFrame(loop); return; }
+  if (S.paused) { _lastDt = 0; draw(); requestAnimationFrame(loop); return; }
 
   // apply timeScale first, then tick the core animation ONCE per frame
   dt *= Math.max(1, S.timeScale);
+  _lastDt = dt;
   coreArt.update(dt);
 
   update(dt); draw(); requestAnimationFrame(loop);
@@ -490,13 +510,11 @@ function update(dt){
     if (!p.alive) continue;
 
     if (p.state === 'attached') {
-      // follow the animated ball on the tower
       const bp = coreArt.ballPos();
       p.x = bp.x; p.y = bp.y;
       p.attachT -= dt;
 
       if (p.attachT <= 0) {
-        // Launch now — compute trajectory to *current* target from current position
         const tgt = enemies.find(e => e.id === p.targetId);
         if (!tgt) { p.alive = false; continue; }
         const end = tgt.pos;
@@ -504,9 +522,8 @@ function update(dt){
         p.t = 0; p.startX = p.x; p.startY = p.y;
         const dist0 = Math.hypot(end.x - p.startX, end.y - p.startY);
         p.ttl = clamp(0.38 + dist0 / 800, 0.38, 0.75);
-        p.arcH = 60 + dist0 * 0.25; // lower arc height to avoid upward-looking float
+        p.arcH = 60 + dist0 * 0.25;
 
-        // clear the core’s attached reference when we launch
         if (coreArt.attached === p) coreArt.attached = null;
       }
 
@@ -517,14 +534,12 @@ function update(dt){
       const end = tgt.pos;
       p.t += dt; const u = Math.min(1, p.t / p.ttl);
 
-      // linear interpolation
       const lx = p.startX + (end.x - p.startX) * u;
       const ly = p.startY + (end.y - p.startY) * u;
 
-      // "drop" curve: only goes down from the release point (no extra upward bump)
-      const yDrop = p.arcH * (u * (1 - u)); // 0 → peak at mid → 0
+      const yDrop = p.arcH * (u * (1 - u));
       p.x = lx;
-      p.y = ly + yDrop; // add downward bulge (screen +y is down)
+      p.y = ly + yDrop;
 
       const hitR = (tgt.radius || 16) + 10;
       if (dist(p.x, p.y, end.x, end.y) <= hitR || u >= 1) {
@@ -540,11 +555,7 @@ function update(dt){
   }
   for (let i = projectiles.length - 1; i >= 0; i--) if (!projectiles[i].alive) projectiles.splice(i, 1);
 
-  // effects (mods can push into effects; we just tick & prune)
-  for (let i=effects.length-1; i>=0; i--) {
-    const keep = effects[i].draw?.(dt);
-    if (!keep) effects.splice(i,1);
-  }
+  // NOTE: effects are now rendered (and culled) inside draw(), not here.
 
   // deaths / gold
   for (let i=enemies.length-1; i>=0; i--) {
@@ -578,10 +589,24 @@ function draw(){
   // core (no decorative ball)
   coreArt.draw();
 
-  // Let mods draw any overlays (auras, domes, markers, etc.)
+  // Mod overlays (auras, domes, etc.) – drawn under sprites
   Engine.drawOverlays(ctx);
 
+  // enemies
   for (const e of enemies) e.draw();
+
+  // ---- effects: draw AFTER enemies so rings/FX appear on top ----
+  // mods push objects with draw(dt) -> boolean (keep?)
+  for (let i = effects.length - 1; i >= 0; i--) {
+    const fx = effects[i];
+    let keep = true;
+    try {
+      keep = fx?.draw?.(_lastDt) !== false;
+    } catch (e) {
+      keep = false;
+    }
+    if (!keep) effects.splice(i, 1);
+  }
 
   // boss bar
   const boss = enemies.find(e => e.boss);
@@ -624,7 +649,6 @@ function resetGame() {
   S.wave = 0; S.waveRunning = false; S.defeated = false;
   core.hp = core.hpMax; S.gold = 0;
   upgrades.dmg = upgrades.rof = upgrades.range = 0; core.applyUpgrades();
-  // Let mods clear their own state (zones, timers, etc.)
   Engine.runResetHooks();
   setWaveStatus('No wave'); saveGame(); notifySubscribers(buildSnapshot());
 }
@@ -636,8 +660,7 @@ function buyUpgrade(type) {
   if (S.gold < c) return;
   S.gold = S.gold - c;
   upgrades[type] = level + 1;
-  core.applyUpgrades(); // base stats recalculated
-  // apply mod-defined upgrade effects on top of base
+  core.applyUpgrades();
   if (typeof def.apply === 'function') def.apply(core, upgrades[type]);
   saveGame(); notifySubscribers(buildSnapshot());
 }
@@ -647,7 +670,7 @@ function castAbility(which) {
   return ok;
 }
 
-// Keybindings (UI may still wire specific ones; mods can add more hotkeys)
+// Keybindings (keep for convenience; mods can also add their own)
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === 'q') castAbility('nova');
