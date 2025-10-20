@@ -38,6 +38,7 @@ const GOLEM_ATTACK_LAST  = 11;
 const TROLL_WALK_LAST    = 9;
 const TROLL_ATTACK_LAST  = 9;
 const BALL_EXP_LAST      = 5;
+const PROJECTILE_SIZE = 40;
 
 // -------------------- Default asset manifest (mods can override) --------------------
 const DEFAULT_ASSETS = {
@@ -60,6 +61,7 @@ const DEFAULT_ASSETS = {
   core_mid:  'assets/core/2.png',
   core_base: 'assets/core/3.png',
   ball_down: 'assets/projectiles/reversed.png',
+  map: 'assets/maps/default_map.png'
 };
 
 // -------------------- Per-type default animation profiles (mods can override) --------------------
@@ -220,12 +222,13 @@ function drawSpriteFitW(img, x, y, targetW, flipX = false) {
   ctx.imageSmoothingEnabled = true; ctx.drawImage(img, -hx, -hy, w, h); ctx.restore();
 }
 
+
 // -------------------- Core art --------------------
 const coreArt = {
   t: 0, dur: 0.5, throwing: false,
   scale: 1.0, anchorY: 10,
   baseW: 120, midW: 122, topW: 118, ballW: 28,
-  restBaseY: 10, restMidY: 10, restTopY: -5, restBallY: -3,
+  restBaseY: 10, restMidY: 10, restTopY: -5, restBallY: -10,
   liftMid: 30, liftTop: 34, liftBall: 200,
   launchFrac: 0.55,
   attached: null,
@@ -235,7 +238,7 @@ const coreArt = {
     const bp = this.ballPos(0);
     const p = {
       state: 'attached', alive: true, targetId,
-      size: 40, x: bp.x, y: bp.y,
+      size: PROJECTILE_SIZE, x: bp.x, y: bp.y,
       attachT: this.dur * this.launchFrac,
       t: 0, ttl: 0, startX: 0, startY: 0, arcH: 0,
       hitApplied: false,
@@ -279,7 +282,7 @@ const coreArt = {
       const ballImg = getImage('ball_idle');
       if (ballImg) {
         const bp = this.ballPos(0);
-        const size = this.ballW || 24;
+        const size = PROJECTILE_SIZE;
         drawSprite(ballImg, bp.x, bp.y, size);
       }
     }
@@ -545,6 +548,19 @@ function update(dt){
 
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // --- draw background map (behind everything) ---
+  const mapImg = getImage('map');
+  if (mapImg && mapImg.width && mapImg.height) {
+    // cover canvas while preserving aspect ratio
+    const w = mapImg.width, h = mapImg.height;
+    const sx = canvas.width / w, sy = canvas.height / h;
+    const s = Math.max(sx, sy);
+    const drawW = w * s, drawH = h * s;
+    const dx = (canvas.width  - drawW) / 2;
+    const dy = (canvas.height - drawH) / 2;
+    ctx.drawImage(mapImg, dx, dy, drawW, drawH);
+  }
 
   // core (no decorative ball)
   coreArt.draw();

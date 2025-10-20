@@ -1,4 +1,4 @@
-// src/mod-loader.js
+// mage-core/src/mod-loader.js
 // Ensure Engine and the ability bridge are ready before content packs
 await import('./engine.js');
 await import('./abilities.js'); // installs bridge + facades

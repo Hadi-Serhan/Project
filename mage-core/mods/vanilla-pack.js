@@ -1,4 +1,4 @@
-// mods/vanilla-pack.js
+// mage-core/mods/vanilla-pack.js
 import Engine from '../src/engine.js';
 import { core, enemies, effects, dist, clamp, ctx } from '../src/state.js';
 

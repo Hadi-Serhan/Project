@@ -1,4 +1,4 @@
-// src/abilities.js
+// mage-core/src/abilities.js
 // Ability system bridge + dynamic facades (no built-in abilities here).
 
 import Engine from './engine.js';

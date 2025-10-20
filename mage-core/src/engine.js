@@ -1,4 +1,4 @@
-// src/engine.js
+// mage-core/src/engine.js
 // Tiny Engine shim: registries + event bus + mod hooks + helpers.
 
 const listeners = new Map(); // event -> Set<fn>

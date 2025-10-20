@@ -1,4 +1,4 @@
-// mods/sample-mod.js
+// mage-core/mods/sample-mod.js
 (() => {
   const G = window.Engine;
   if (!G) { console.warn('[sample-mod] Engine not found'); return; }

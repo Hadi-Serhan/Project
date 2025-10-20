@@ -1,3 +1,4 @@
+//mage-core/src/state.js
 import Engine from './engine.js';
 
 // ===== Canvas / basics =====
