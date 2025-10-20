@@ -121,7 +121,7 @@ Engine.registerAbility('nova', {
       }
     }
 
-    // 🔥 animated nova ring(s)
+    // animated nova ring
     effects.push(makeNovaFireRing(core.x(), core.y(), {
       radius: this.radius + 10,
       thickness: 16,

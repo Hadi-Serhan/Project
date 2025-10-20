@@ -3,19 +3,15 @@ import {
   canvas, ctx, cx, cy, dist, clamp,
   core, enemies, projectiles, effects,
   upgrades, cost,
-  // state vars
   gold, wave, waveRunning, defeated, waveStatus,
-  // setters
   setGold, setWave, setWaveRunning, setDefeatedFlag, setWaveStatus,
-  // pub/sub
   subscribe, notifySubscribers,
-  // run controls
   paused, timeScale, autoStart, setPaused, setTimeScale, setAutoStart
 } from './state.js';
 
 import Engine from './engine.js';
 import { ENEMY_TYPES, waveRecipe } from './content.js';
-import { loadAssets, getImage, getFrames } from './assets.js';
+import { getImage, getFrames } from './assets.js'; // (loader is bridged via Engine.setAssets)
 
 // Expose live game state to mods via Engine.state / window.EngineState
 Engine.setStateAccessor(() => ({ core, enemies, effects, projectiles }));
@@ -43,8 +39,8 @@ const TROLL_WALK_LAST    = 9;
 const TROLL_ATTACK_LAST  = 9;
 const BALL_EXP_LAST      = 5;
 
-// -------------------- Asset manifest --------------------
-const ASSETS = {
+// -------------------- Default asset manifest (mods can override) --------------------
+const DEFAULT_ASSETS = {
   troll_walk:   { seq: { base: 'assets/troll/Walking/Troll_03_1_WALK_',    start: 0, end: TROLL_WALK_LAST,   pad: 3, ext: '.png' } },
   troll_attack: { seq: { base: 'assets/troll/Slashing/Troll_03_1_ATTACK_', start: 0, end: TROLL_ATTACK_LAST, pad: 3, ext: '.png' } },
 
@@ -63,14 +59,15 @@ const ASSETS = {
   core_top:  'assets/core/1.png',
   core_mid:  'assets/core/2.png',
   core_base: 'assets/core/3.png',
+  ball_down: 'assets/projectiles/reversed.png',
 };
 
-// -------------------- Per-type animation profiles --------------------
-const ANIM = {
-  grunt: { walk: 'necro_walk', attack: 'necro_attack', fpsWalk: 10, fpsAtk: 12, size: 56, face: 'right' },
-  runner:{ walk: 'skeleton_run', attack: 'skeleton_attack', fpsWalk: 12, fpsAtk: 12, size: 52, face: 'right' },
-  tank:  { walk: 'golem_walk',   attack: 'golem_attack',   fpsWalk: 8,  fpsAtk: 10, size: 64, face: 'right' },
-  boss:  { walk: 'troll_walk',   attack: 'troll_attack',   fpsWalk: 8,  fpsAtk: 10, size: 84, face: 'right' }
+// -------------------- Per-type default animation profiles (mods can override) --------------------
+const DEFAULT_ANIM = {
+  grunt:  { walk: 'necro_walk',    attack: 'necro_attack',    fpsWalk: 10, fpsAtk: 12, size: 56, face: 'right' },
+  runner: { walk: 'skeleton_run',  attack: 'skeleton_attack', fpsWalk: 12, fpsAtk: 12, size: 52, face: 'right' },
+  tank:   { walk: 'golem_walk',    attack: 'golem_attack',    fpsWalk: 8,  fpsAtk: 10, size: 64, face: 'right' },
+  boss:   { walk: 'troll_walk',    attack: 'troll_attack',    fpsWalk: 8,  fpsAtk: 10, size: 84, face: 'right' }
 };
 
 // ---- Register enemy types ----
@@ -80,34 +77,6 @@ for (const [id, def] of Object.entries(ENEMY_TYPES)) {
 }
 Engine.setGoldSink((amt) => { S.gold = Math.max(0, (S.gold|0) + (amt|0)); });
 Engine.setCoreMutator((fn) => { fn(core); });
-
-// ---- Base game upgrades registered via Engine (mods can override/replace) ----
-Engine.registerUpgrade('dmg', {
-  title: 'Damage',
-  desc:  'Increase projectile damage.',
-  cost(level){ return Math.floor(20 * Math.pow(1.5, level)); },
-  apply(core, level){
-    core.damage = core.baseDamage + level * 5;
-  }
-});
-
-Engine.registerUpgrade('rof', {
-  title: 'Fire Rate',
-  desc:  'Increase shots per second.',
-  cost(level){ return Math.floor(20 * Math.pow(1.5, level)); },
-  apply(core, level){
-    core.fireRate = core.baseFireRate + level * 0.2;
-  }
-});
-
-Engine.registerUpgrade('range', {
-  title: 'Range',
-  desc:  'Increase targeting radius.',
-  cost(level){ return Math.floor(20 * Math.pow(1.5, level)); },
-  apply(core, level){
-    core.range = core.baseRange + level * 12;
-  }
-});
 
 // -------------------- Save / Load --------------------
 const SAVE_KEY = 'mage-core:v1';
@@ -189,7 +158,7 @@ function buildSnapshot(){
   };
 }
 
-// -------------------- FX helpers (restored) --------------------
+// -------------------- FX helpers --------------------
 function makeFloatText(x, y, text, color = '#ffd166') {
   return {
     t: 0, dur: 0.8, x, y, vy: -36,
@@ -205,33 +174,17 @@ function makeFloatText(x, y, text, color = '#ffd166') {
       ctx.textAlign = 'center';
       ctx.fillText(text, this.x, yy);
       ctx.restore();
-      return this.t < this.dur; // keep until done
+      return this.t < this.dur;
     }
   };
 }
-
 function applyDamage(target, dmg) {
   target.hp -= dmg;
   const p = target.pos;
-  effects.push(
-    makeFloatText(
-      p.x,
-      p.y - target.radius - 12,
-      Math.ceil(dmg).toString(),
-      '#ffd166'
-    )
-  );
+  effects.push(makeFloatText(p.x, p.y - target.radius - 12, Math.ceil(dmg).toString(), '#ffd166'));
 }
-
 function coreTookDamage(amount) {
-  effects.push(
-    makeFloatText(
-      core.x(),
-      core.y() - 28,
-      `-${amount}`,
-      '#ff6b6b'
-    )
-  );
+  effects.push(makeFloatText(core.x(), core.y() - 28, `-${amount}`, '#ff6b6b'));
 }
 
 // -------------------- Sprite helpers --------------------
@@ -269,30 +222,27 @@ function drawSpriteFitW(img, x, y, targetW, flipX = false) {
 
 // -------------------- Core art --------------------
 const coreArt = {
-  // timing
   t: 0, dur: 0.5, throwing: false,
-  // layout
   scale: 1.0, anchorY: 10,
-  baseW: 140, midW: 122, topW: 118, ballW: 28,
-  restBaseY: 10, restMidY: 35, restTopY: 10, restBallY: 15,
+  baseW: 120, midW: 122, topW: 118, ballW: 28,
+  restBaseY: 10, restMidY: 10, restTopY: -5, restBallY: -3,
   liftMid: 30, liftTop: 34, liftBall: 200,
-  launchFrac: 0.55, // release slightly closer to peak
-
-  // a reference to the currently attached projectile (if any)
+  launchFrac: 0.55,
   attached: null,
 
   startThrow(targetId) {
     this.throwing = true; this.t = 0;
-
-    // spawn the ONLY ball as a projectile attached to the tower
     const bp = this.ballPos(0);
     const p = {
       state: 'attached', alive: true, targetId,
-      size: 24, x: bp.x, y: bp.y,
+      size: 40, x: bp.x, y: bp.y,
       attachT: this.dur * this.launchFrac,
       t: 0, ttl: 0, startX: 0, startY: 0, arcH: 0,
       hitApplied: false,
       explode: makeAnim('ball_explode', 18, false),
+
+      prevX: bp.x, prevY: bp.y,
+      descending: false,
     };
     this.attached = p;
     projectiles.push(p);
@@ -304,7 +254,6 @@ const coreArt = {
     if (this.t >= this.dur) { this.throwing = false; this.t = 0; }
   },
 
-  // get the ball’s current decorative position (for following)
   ballPos(kOverride = null) {
     const x = core.x();
     const y0 = core.y() + this.anchorY;
@@ -325,7 +274,6 @@ const coreArt = {
     if (imgMid)  drawSpriteFitW(imgMid,  x, y0 + this.restMidY  - this.liftMid  * k, this.midW  * this.scale);
     if (imgTop)  drawSpriteFitW(imgTop,  x, y0 + this.restTopY  - this.liftTop  * k, this.topW  * this.scale);
 
-    // --- Decorative idle ball (only when NOT throwing and no 'attached' projectile) ---
     const showDecorBall = !this.throwing && (!this.attached || this.attached.state !== 'attached');
     if (showDecorBall) {
       const ballImg = getImage('ball_idle');
@@ -338,6 +286,15 @@ const coreArt = {
   }
 };
 
+// Set core collision radius based on the visual base width.
+// Increase mult to stop enemies farther from center (e.g. 1.00..1.05). Decrease to allow closer.
+function setCoreRadiusFromArt(mult = 0.98) {
+  const visualRadius = (coreArt.baseW * (coreArt.scale || 1)) * 0.5;
+  core.radius = Math.round(visualRadius * mult);
+}
+// Initialize once now that coreArt exists
+setCoreRadiusFromArt();
+
 // -------------------- Enemy factory --------------------
 Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
   const angle = Engine.rng() * Math.PI * 2;
@@ -348,9 +305,11 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
 
   const typeId = def.id || overrides.type || (def.boss ? 'boss' : 'enemy');
 
-  // allow per-enemy animation override via def.anim; fallback to ANIM table
-  const baseProfile = ANIM[def.boss ? 'boss' : typeId] || {};
-  const profile = def.anim ? { ...baseProfile, ...def.anim } : baseProfile;
+  // allow per-enemy animation override via def.anim; resolve via Engine registry
+  const baseProfile = DEFAULT_ANIM[def.boss ? 'boss' : typeId] || {};
+  const profile = (typeof Engine.resolveAnimProfile === 'function')
+    ? Engine.resolveAnimProfile(typeId, !!def.boss, baseProfile, def.anim)
+    : (def.anim ? { ...baseProfile, ...def.anim } : baseProfile);
 
   return {
     id: Math.random().toString(36).slice(2),
@@ -377,7 +336,6 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
     update(dt){
       const p = this.pos;
 
-      // Let mods inject movement/attack multipliers (e.g., slows, hastes, debuffs)
       const mods = Engine.applyEnemyModifiers(this, dt, { now: performance.now()/1000, pos: p });
       const speedMul = mods.speedMul;
       const atkMul   = mods.atkMul;
@@ -410,11 +368,11 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
         ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(core.x(), core.y()); ctx.stroke();
       }
 
-      const defaultFacesRight = (profile?.face ?? 'right') === 'right';
+      const defaultFacesRight = (baseProfile?.face ?? 'right') === 'right';
       const coreIsRight = core.x() > p.x;
       const flipX = defaultFacesRight ? !coreIsRight : coreIsRight;
 
-      const baseSize = profile?.size ?? (this.boss ? 72 : 56);
+      const baseSize = baseProfile?.size ?? (this.boss ? 72 : 56);
       const bob  = (this.state === 'attacking') ? 0.5 : Math.sin(performance.now()/220 + this.id.length) * 1.5;
 
       let drew = false;
@@ -451,14 +409,13 @@ function spawnBatch(type, count, cadenceSec){
 
 // -------------------- Loop --------------------
 let last = performance.now();
-let _lastDt = 0; // <<< keep dt for effects rendering
+let _lastDt = 0;
 function loop(now){
   let dt = Math.min((now - last)/1000, 0.05);
   last = now;
 
   if (S.paused) { _lastDt = 0; draw(); requestAnimationFrame(loop); return; }
 
-  // apply timeScale first, then tick the core animation ONCE per frame
   dt *= Math.max(1, S.timeScale);
   _lastDt = dt;
   coreArt.update(dt);
@@ -466,23 +423,23 @@ function loop(now){
   update(dt); draw(); requestAnimationFrame(loop);
 }
 
-// Start AFTER assets are loaded (with mod-friendly bootstrap hooks)
+// Start AFTER assets are ready (mods may call Engine.setAssets before/after)
 (async () => {
   try {
     Engine.emit('bootstrap:beforeAssets');
-    await loadAssets(ASSETS);
+    await Engine.setAssets?.(DEFAULT_ASSETS);
     Engine.emit('bootstrap:afterAssets');
   } catch (e) {
     console.warn('Asset load failed:', e);
   }
+  // ensure radius matches the visuals once assets/scale are settled
+  setCoreRadiusFromArt();
   requestAnimationFrame(loop);
 })();
 
 function update(dt){
-  // enemy updates
   for (const e of enemies) e.update(dt);
 
-  // core fire — spawn the attached projectile *inside* startThrow
   if (!S.defeated) {
     core._fireTimer -= dt;
     if (core._fireTimer <= 0) {
@@ -511,7 +468,9 @@ function update(dt){
 
     if (p.state === 'attached') {
       const bp = coreArt.ballPos();
+      p.prevY = p.y; p.prevX = p.x;
       p.x = bp.x; p.y = bp.y;
+      p.descending = false;
       p.attachT -= dt;
 
       if (p.attachT <= 0) {
@@ -532,6 +491,7 @@ function update(dt){
       if (!tgt) { p.alive = false; continue; }
 
       const end = tgt.pos;
+      const prevY = p.y;
       p.t += dt; const u = Math.min(1, p.t / p.ttl);
 
       const lx = p.startX + (end.x - p.startX) * u;
@@ -540,6 +500,8 @@ function update(dt){
       const yDrop = p.arcH * (u * (1 - u));
       p.x = lx;
       p.y = ly + yDrop;
+
+      p.descending = (p.y > prevY + 0.01);
 
       const hitR = (tgt.radius || 16) + 10;
       if (dist(p.x, p.y, end.x, end.y) <= hitR || u >= 1) {
@@ -554,8 +516,6 @@ function update(dt){
     }
   }
   for (let i = projectiles.length - 1; i >= 0; i--) if (!projectiles[i].alive) projectiles.splice(i, 1);
-
-  // NOTE: effects are now rendered (and culled) inside draw(), not here.
 
   // deaths / gold
   for (let i=enemies.length-1; i>=0; i--) {
@@ -595,16 +555,11 @@ function draw(){
   // enemies
   for (const e of enemies) e.draw();
 
-  // ---- effects: draw AFTER enemies so rings/FX appear on top ----
-  // mods push objects with draw(dt) -> boolean (keep?)
+  // effects (draw over enemies)
   for (let i = effects.length - 1; i >= 0; i--) {
     const fx = effects[i];
     let keep = true;
-    try {
-      keep = fx?.draw?.(_lastDt) !== false;
-    } catch (e) {
-      keep = false;
-    }
+    try { keep = fx?.draw?.(_lastDt) !== false; } catch { keep = false; }
     if (!keep) effects.splice(i, 1);
   }
 
@@ -623,8 +578,9 @@ function draw(){
   // projectiles (the ONLY ball you see)
   for (const p of projectiles) {
     if (p.state === 'attached' || p.state === 'arc') {
-      const ball = getImage('ball_idle');
-      if (ball) drawSprite(ball, p.x, p.y, p.size || 24);
+      const key = p.descending ? 'ball_down' : 'ball_idle';
+      const img = getImage(key);
+      if (img) drawSprite(img, p.x, p.y, p.size || 24);
       else { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); }
     } else {
       const frame = p.explode?.frame();
@@ -670,7 +626,7 @@ function castAbility(which) {
   return ok;
 }
 
-// Keybindings (keep for convenience; mods can also add their own)
+// Keybindings
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === 'q') castAbility('nova');

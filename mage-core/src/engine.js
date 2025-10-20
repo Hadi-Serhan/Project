@@ -27,7 +27,8 @@ const registry = {
   enemies: Object.create(null),
   abilities: Object.create(null),
   upgrades: Object.create(null),
-  waves: Object.create(null), // optional: named wave recipes
+  waves: Object.create(null),          // optional: named wave recipes
+  animProfiles: Object.create(null),   // <<< NEW: per-type animation profile overrides
 };
 
 // Factories/sinks are provided by the game at boot (so engine stays decoupled)
@@ -79,15 +80,12 @@ const Engine = {
     _defaultWaveRecipe = (typeof fn === 'function') ? fn : null;
     _currentWaveRecipe = _defaultWaveRecipe || ((w)=>[]);
   },
-  // content.js calls this to give the engine a setter into its module scope
   setWaveRecipeBridge(bridgeFn) {
     _waveRecipeBridge = (typeof bridgeFn === 'function') ? bridgeFn : null;
-    // keep content in sync with whatever recipe is active right now
     if (_waveRecipeBridge) {
       try { _waveRecipeBridge(_currentWaveRecipe); } catch (e) { console.warn('[Engine.setWaveRecipeBridge]', e); }
     }
   },
-  // mods call this to activate a new recipe; engine forwards to content via the bridge
   setWaveRecipe(fn) {
     const next = (typeof fn === 'function') ? fn : (_defaultWaveRecipe || ((w)=>[]));
     _currentWaveRecipe = next;
@@ -99,9 +97,7 @@ const Engine = {
     try { return _currentWaveRecipe ? (_currentWaveRecipe(waveNum) || []) : []; }
     catch (e) { console.warn('[Engine.getWaveRecipe]', e); return []; }
   },
-  // convenience alias for older code
   waveRecipe(w) { return Engine.getWaveRecipe(w); },
-  // expose the default so content/mods can revert
   get defaultWaveRecipe() { return _defaultWaveRecipe; },
 
   // Runtime helpers
@@ -126,9 +122,21 @@ const Engine = {
   setAssetsBridge(fn) { assetsBridge = fn || assetsBridge; },
   async setAssets(manifest = {}) { try { await assetsBridge(manifest); } catch (e) { console.warn('[Engine.setAssets]', e); } },
 
+  // ----- Animation profile overrides (per type / global) -----
+  setAnimProfile(typeOrKey, profile) {
+    const cur = registry.animProfiles[typeOrKey] || {};
+    registry.animProfiles[typeOrKey] = { ...cur, ...profile };
+    emit('anim:profile', { id: typeOrKey, profile: registry.animProfiles[typeOrKey] });
+  },
+  resolveAnimProfile(typeId, isBoss, fallbackProfile, defAnimOverride) {
+    const fromReg = registry.animProfiles[typeId]
+                 || (isBoss ? registry.animProfiles.boss : registry.animProfiles.default)
+                 || {};
+    return { ...fallbackProfile, ...fromReg, ...(defAnimOverride || {}) };
+  },
+
   // ----- State accessor for mods -----
   setStateAccessor(fn) { stateAccessor = fn; },
-  // Back-compat alias (your earlier code used setStateApi):
   setStateApi(fn) { stateAccessor = fn; },
   get state() { return stateAccessor ? stateAccessor() : null; },
 
