@@ -10,18 +10,23 @@ import {
 import Engine from './engine.js';
 import { ENEMY_TYPES, waveRecipe } from './content.js';
 import { getImage, getFrames } from './assets.js';
+import { Audio, installSoundHooks } from './audio.js';
 
-// import UI hooks only (no DOM here)
+// UI hooks (no DOM here, just callbacks)
 import {
   initMenuUI,
   ensureHudMenuButton,
   removeHudMenuButton,
   openPauseMenu,
-  showDefeatMenu
+  showDefeatMenu,
+  installGlobalUiClickSfx,
 } from './ui/overlay.js';
-
+installGlobalUiClickSfx();
 // Expose live game state to Engine
 Engine.setStateAccessor(() => ({ core, enemies, effects, projectiles }));
+
+// Install sound-side event hooks (enemy death, core hit, etc.)
+installSoundHooks(Engine, { cx, cy, width: () => canvas.width });
 
 // Local view for reactive state setters
 const S = {
@@ -59,6 +64,18 @@ const DEFAULT_ASSETS = {
   ball_down: 'assets/projectiles/reversed.png',
   map: 'assets/maps/default_map.png'
 };
+
+// SFX manifest: change filenames if you prefer other names
+Audio.load({
+  'ui/click':     new URL('../assets/sfx/ui_click1.mp3', import.meta.url).href,
+  'ui/switch':   new URL('../assets/sfx/switch.mp3', import.meta.url).href,
+  'proj/throw':    new URL('../assets/sfx/fireball_throw.wav', import.meta.url).href,
+});
+
+Audio.loadMusic({
+  'music/menu': new URL('../assets/sfx/sound1.wav', import.meta.url).href,
+  'music/wave': new URL('../assets/sfx/sound2.wav', import.meta.url).href,
+});
 
 // ---- default anim profiles ----
 const DEFAULT_ANIM = {
@@ -263,6 +280,8 @@ const coreArt = {
     const expected = Math.round(core.damage);
     const reserved = reserveDamage(tgt, expected);
 
+    Audio.play('proj/throw', { x: core.x(), y: core.y(), center: { cx, cy, width: () => canvas.width }, throttleMs: 80 });
+
     const p = {
       state: 'attached', alive: true, targetId,
       size: PROJECTILE_SIZE, x: bp.x, y: bp.y,
@@ -276,6 +295,9 @@ const coreArt = {
     };
     this.attached = p;
     projectiles.push(p);
+
+    // SFX: projectile launch (spatialized)
+    Audio.play('proj/throw', { x: core.x(), y: core.y(), center: { cx, cy, width: () => canvas.width } });
   },
 
   update(dt) {
@@ -406,7 +428,7 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
       }
       if (!drew) { ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(p.x, p.y, this.radius, 0, Math.PI*2); ctx.fill(); }
 
-      // HP bar with subtle incoming overlay (optional visual)
+      // HP bar with incoming overlay
       const w = this.boss ? 36 : 20, h = 4, x = p.x - w/2, y = p.y - (this.boss ? 42 : 30);
       ctx.fillStyle = '#333'; ctx.fillRect(x, y, w, h);
       const frac = clamp(this.hp/this.hpMax,0,1);
@@ -481,20 +503,7 @@ function loop(now){
           removeHudMenuButton();
           resetGame();
           S.paused = true;
-          initMenuUI({
-            onPlay: () => {
-              S.paused = false;
-              if (!buildSnapshot().waveRunning) startWave();
-              ensureHudMenuButton(() => openPauseMenu({
-                onResume: () => { S.paused = false; },
-                onSurrender: () => { surrender(); },
-                onMainMenu: () => {
-                  removeHudMenuButton(); resetGame(); S.paused = true; initMenuUI({ onPlay: arguments.callee });
-                }
-              }));
-            },
-            onBuyPermanent: (id) => { buyPermanent(id); }
-          });
+          initMenuUI({ onPlay: startFromMenu, onBuyPermanent: buyPermanent });
         }
       }));
     },
@@ -583,6 +592,7 @@ function update(dt){
       if (dist(p.x, p.y, end.x, end.y) <= hitR || u >= 1) {
         if (p.reserved) { releaseReservation(p.targetId, p.reserved); p.reserved = 0; }
         if (!p.hitApplied) { applyDamage(tgt, core.damage); p.hitApplied = true; }
+
         p.state = 'explode'; p.explode.reset();
       }
 
@@ -611,6 +621,9 @@ function update(dt){
     const add = Engine.calcPrestigeAward({ kind:'defeat', wave:S.wave })|0;
     if (add > 0) { S.prestige += add; setWaveStatus(`Defeated ❌ (+${add} ⚜)`); }
     else setWaveStatus('Defeated ❌');
+
+    // SFX: defeat sting
+    Audio.play('wave/defeat', { group: 'music' });
 
     removeHudMenuButton();
     showDefeatMenu({
@@ -728,24 +741,19 @@ function resetGame() {
 function hardReset() {
   try { localStorage.removeItem('mage-core:v1'); } catch {}
 
-  // clear run + stats
   enemies.length = 0; projectiles.length = 0; effects.length = 0;
-  // if spawners is in this scope:
   if (typeof spawners !== 'undefined') spawners.length = 0;
 
   S.wave = 0; S.waveRunning = false; S.defeated = false;
   S.gold = 0; S.prestige = 0;
   core.hp = core.hpMax;
 
-  // clear gold upgrades
   upgrades.dmg = 0;
   upgrades.rof = 0;
   upgrades.range = 0;
 
-  // clear *all* permanent levels (including abilities)
   Engine.setPermLevels({});
 
-  // re-apply from clean slate
   core.applyUpgrades();
   Engine.applyPermToCore(core);
   Engine.runResetHooks?.();
@@ -753,7 +761,6 @@ function hardReset() {
   setWaveStatus('Progress wiped');
   notifySubscribers(buildSnapshot());
 }
-
 
 function buyUpgrade(type) {
   const def = Engine.registry?.upgrades?.[type];
@@ -798,7 +805,6 @@ function castAbility(which) {
 }
 function surrender() {
   if (S.defeated) return;
-  // end run immediately; update() will detect defeat and show defeat menu
   core.hp = 0;
 }
 
