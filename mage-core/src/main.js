@@ -1,24 +1,32 @@
-// mage-core/src/main.js
 import {
   canvas, ctx, cx, cy, dist, clamp,
-  core, enemies, projectiles, effects,
-  upgrades, cost,
-  gold, wave, waveRunning, defeated, waveStatus,
-  setGold, setWave, setWaveRunning, setDefeatedFlag, setWaveStatus,
+  core, enemies, projectiles, effects, upgrades,
+  gold, prestige, wave, waveRunning, defeated, waveStatus,
+  setGold, setWave, setWaveRunning, setDefeatedFlag, setWaveStatus, setPrestige,
   subscribe, notifySubscribers,
   paused, timeScale, autoStart, setPaused, setTimeScale, setAutoStart
 } from './state.js';
 
 import Engine from './engine.js';
 import { ENEMY_TYPES, waveRecipe } from './content.js';
-import { getImage, getFrames } from './assets.js'; // (loader is bridged via Engine.setAssets)
+import { getImage, getFrames } from './assets.js';
 
-// Expose live game state to mods via Engine.state / window.EngineState
+// import UI hooks only (no DOM here)
+import {
+  initMenuUI,
+  ensureHudMenuButton,
+  removeHudMenuButton,
+  openPauseMenu,
+  showDefeatMenu
+} from './ui/overlay.js';
+
+// Expose live game state to Engine
 Engine.setStateAccessor(() => ({ core, enemies, effects, projectiles }));
 
-// -------------------- Local "view" of state --------------------
+// Local view for reactive state setters
 const S = {
   get gold()         { return gold; }, set gold(v) { setGold(v); },
+  get prestige()     { return prestige; }, set prestige(v) { setPrestige(v); },
   get wave()         { return wave; }, set wave(v) { setWave(v); },
   get waveRunning()  { return waveRunning; }, set waveRunning(v) { setWaveRunning(v); },
   get defeated()     { return defeated; }, set defeated(v) { setDefeatedFlag(v); },
@@ -28,35 +36,23 @@ const S = {
   get autoStart()    { return autoStart; }, set autoStart(v) { setAutoStart(v); }
 };
 
-// ---- sprite sheet frame counts ----
-const NECRO_WALK_LAST    = 22;
-const NECRO_ATTACK_LAST  = 11;
-const SKELE_RUN_LAST     = 11;
-const SKELE_ATTACK_LAST  = 11;
-const GOLEM_WALK_LAST    = 23;
-const GOLEM_ATTACK_LAST  = 11;
-const TROLL_WALK_LAST    = 9;
-const TROLL_ATTACK_LAST  = 9;
-const BALL_EXP_LAST      = 5;
-const PROJECTILE_SIZE = 40;
+// ---- sprite frame totals ----
+const NECRO_WALK_LAST=22, NECRO_ATTACK_LAST=11, SKELE_RUN_LAST=11, SKELE_ATTACK_LAST=11,
+      GOLEM_WALK_LAST=23, GOLEM_ATTACK_LAST=11, TROLL_WALK_LAST=9, TROLL_ATTACK_LAST=9,
+      BALL_EXP_LAST=5, PROJECTILE_SIZE=40;
 
-// -------------------- Default asset manifest (mods can override) --------------------
+// ---- assets ----
 const DEFAULT_ASSETS = {
   troll_walk:   { seq: { base: 'assets/troll/Walking/Troll_03_1_WALK_',    start: 0, end: TROLL_WALK_LAST,   pad: 3, ext: '.png' } },
   troll_attack: { seq: { base: 'assets/troll/Slashing/Troll_03_1_ATTACK_', start: 0, end: TROLL_ATTACK_LAST, pad: 3, ext: '.png' } },
-
   golem_walk:   { seq: { base: 'assets/golem/Walking/0_Golem_Walking_',    start: 0, end: GOLEM_WALK_LAST,   pad: 3, ext: '.png' } },
   golem_attack: { seq: { base: 'assets/golem/Slashing/0_Golem_Slashing_',  start: 0, end: GOLEM_ATTACK_LAST, pad: 3, ext: '.png' } },
-
   skeleton_run:    { seq: { base: 'assets/skeleton/Running/0_Skeleton_Crusader_Running_',   start: 0, end: SKELE_RUN_LAST,    pad: 3, ext: '.png' } },
   skeleton_attack: { seq: { base: 'assets/skeleton/Slashing/0_Skeleton_Crusader_Slashing_', start: 0, end: SKELE_ATTACK_LAST, pad: 3, ext: '.png' } },
-
   necro_walk:   { seq: { base: 'assets/necromancer/Walking/0_Necromancer_of_the_Shadow_Walking_',   start: 0, end: NECRO_WALK_LAST,   pad: 3, ext: '.png' } },
   necro_attack: { seq: { base: 'assets/necromancer/Slashing/0_Necromancer_of_the_Shadow_Slashing_', start: 0, end: NECRO_ATTACK_LAST, pad: 3, ext: '.png' } },
-
   ball_idle:    'assets/projectiles/1.png',
   ball_explode: { seq: { base: 'assets/projectiles/', start: 2, end: BALL_EXP_LAST, pad: 0, ext: '.png' } },
-
   core_top:  'assets/core/1.png',
   core_mid:  'assets/core/2.png',
   core_base: 'assets/core/3.png',
@@ -64,7 +60,7 @@ const DEFAULT_ASSETS = {
   map: 'assets/maps/default_map.png'
 };
 
-// -------------------- Per-type default animation profiles (mods can override) --------------------
+// ---- default anim profiles ----
 const DEFAULT_ANIM = {
   grunt:  { walk: 'necro_walk',    attack: 'necro_attack',    fpsWalk: 10, fpsAtk: 12, size: 56, face: 'right' },
   runner: { walk: 'skeleton_run',  attack: 'skeleton_attack', fpsWalk: 12, fpsAtk: 12, size: 52, face: 'right' },
@@ -72,7 +68,7 @@ const DEFAULT_ANIM = {
   boss:   { walk: 'troll_walk',    attack: 'troll_attack',    fpsWalk: 8,  fpsAtk: 10, size: 84, face: 'right' }
 };
 
-// ---- Register enemy types ----
+// ---- enemy type registration ----
 for (const [id, def] of Object.entries(ENEMY_TYPES)) {
   def.id = id;
   Engine.registerEnemyType(id, def);
@@ -85,7 +81,8 @@ const SAVE_KEY = 'mage-core:v1';
 function serialize() {
   return {
     wave: S.wave, waveRunning: false, defeated: false,
-    gold: S.gold, coreHP: core.hp, upgrades: { ...upgrades },
+    gold: S.gold, prestige: S.prestige, coreHP: core.hp, upgrades: { ...upgrades },
+    perm: Engine.serializePerm(),
     savedAt: Date.now(), timeScale: S.timeScale, autoStart: S.autoStart,
     mods: [],
   };
@@ -94,20 +91,23 @@ function hasSave() { try { return !!localStorage.getItem(SAVE_KEY); } catch { re
 function saveGame() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(serialize()));
-    setWaveStatus('Game saved 💾');
-    setTimeout(() => setWaveStatus('Running…'), 800);
+    setWaveStatus('Game saved 💾'); setTimeout(() => setWaveStatus('Running…'), 800);
     notifySubscribers(buildSnapshot());
   } catch {}
 }
 function applySnapshot(snap) {
   S.wave = snap.wave ?? 0; S.waveRunning = false; S.defeated = false;
-  S.gold = snap.gold ?? 0; S.timeScale = snap.timeScale ?? 1; S.autoStart = !!(snap.autoStart ?? false);
+  S.gold = snap.gold ?? 0; S.prestige = snap.prestige ?? 0;
+  S.timeScale = snap.timeScale ?? 1; S.autoStart = !!(snap.autoStart ?? false);
   core.hp = Math.min(core.hpMax, snap.coreHP ?? core.hpMax);
 
   upgrades.dmg   = snap.upgrades?.dmg   ?? 0;
   upgrades.rof   = snap.upgrades?.rof   ?? 0;
   upgrades.range = snap.upgrades?.range ?? 0;
   core.applyUpgrades();
+
+  Engine.setPermLevels(snap.perm || {});
+  Engine.applyPermToCore(core);
 
   enemies.length = 0; projectiles.length = 0; effects.length = 0; spawners.length = 0;
 
@@ -120,41 +120,49 @@ function loadGame() {
 function wipeSave() { try { localStorage.removeItem(SAVE_KEY); } catch {} setWaveStatus('Save wiped 🗑️'); notifySubscribers(buildSnapshot()); }
 setInterval(saveGame, 5000);
 
-// -------------------- Snapshot for Vue --------------------
+// -------------------- Snapshot helpers --------------------
 function snapshotAbilities() {
   const out = [];
   const reg = Engine.registry?.abilities || {};
   for (const [id, a] of Object.entries(reg)) {
+    const lvl = (Engine.getAbilityPermLevel?.(id) || 0)|0;
     out.push({
-      id,
-      title: a.title || id,
-      hint: a.hint || '',
+      id, title: a.title || id, hint: a.hint || '',
       enabled: a.enabled !== false,
       cd: Number.isFinite(a.cd) ? a.cd : 0,
-      cdLeft: Number.isFinite(a.cdLeft) ? a.cdLeft : 0
+      cdLeft: Number.isFinite(a.cdLeft) ? a.cdLeft : 0,
+      permLevel: lvl,
+      permPrice: 5 + Math.floor(Math.pow(1.35, lvl)),
     });
   }
   out.sort((x,y) => (x.title||'').localeCompare(y.title||'') || x.id.localeCompare(y.id));
   return out;
 }
-function snapshotUpgrades() {
-  const reg = Engine.registry?.upgrades || {};
-  const costs = {};
-  for (const [id, def] of Object.entries(reg)) {
-    const level = upgrades[id] | 0;
-    costs[id] = typeof def.cost === 'function' ? def.cost(level) : 0;
+function snapshotPermanent() {
+  const rows = [];
+  for (const [id, def] of Object.entries(Engine.registry?.upgrades || {})) {
+    const lvl = (Engine.getPermLevels()[id] | 0);
+    const title = def.title || id;
+    const price = 5 + Math.floor(Math.pow(1.35, lvl));
+    rows.push({ id: `upgrade:${id}`, title, level: lvl, price, kind: 'upgrade' });
   }
-  return { levels: { ...upgrades }, costs };
+  for (const [id, ab] of Object.entries(Engine.registry?.abilities || {})) {
+    const lvl = (Engine.getAbilityPermLevel?.(id) || 0);
+    const title = ab.title || id;
+    const price = 5 + Math.floor(Math.pow(1.35, lvl));
+    rows.push({ id: `ability:${id}`, title, level: lvl, price, kind: 'ability' });
+  }
+  rows.sort((a,b)=> a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+  return rows;
 }
 function buildSnapshot(){
   let lastSaved = null;
   try { const raw = localStorage.getItem(SAVE_KEY); if (raw) lastSaved = (JSON.parse(raw).savedAt) || null; } catch {}
-  const { costs } = snapshotUpgrades();
   return {
     wave: S.wave, waveRunning: S.waveRunning, defeated: S.defeated,
-    coreHP: core.hp, gold: S.gold,
-    costs,
+    coreHP: core.hp, gold: S.gold, prestige: S.prestige,
     abilities: snapshotAbilities(),
+    permanent: snapshotPermanent(),
     waveStatus: S.waveStatus, hasSave: hasSave(), lastSaved,
     paused: S.paused, timeScale: S.timeScale, autoStart: S.autoStart,
   };
@@ -222,8 +230,22 @@ function drawSpriteFitW(img, x, y, targetW, flipX = false) {
   ctx.imageSmoothingEnabled = true; ctx.drawImage(img, -hx, -hy, w, h); ctx.restore();
 }
 
+// -------------------- Damage reservation helpers --------------------
+function effHP(e){ return (e.hp|0) - ((e.incomingDamage|0) || 0); }
+function reserveDamage(enemy, amount){
+  if (!enemy) return 0;
+  const amt = Math.max(0, amount|0);
+  enemy.incomingDamage = (enemy.incomingDamage|0) + amt;
+  return amt;
+}
+function releaseReservation(enemyId, amount){
+  if (!enemyId || !Number.isFinite(amount)) return;
+  const e = enemies.find(x => x.id === enemyId);
+  if (!e) return;
+  e.incomingDamage = Math.max(0, (e.incomingDamage|0) - (amount|0));
+}
 
-// -------------------- Core art --------------------
+// -------------------- Core art / projectile creation --------------------
 const coreArt = {
   t: 0, dur: 0.5, throwing: false,
   scale: 1.0, anchorY: 10,
@@ -236,6 +258,11 @@ const coreArt = {
   startThrow(targetId) {
     this.throwing = true; this.t = 0;
     const bp = this.ballPos(0);
+
+    const tgt = enemies.find(e => e.id === targetId);
+    const expected = Math.round(core.damage);
+    const reserved = reserveDamage(tgt, expected);
+
     const p = {
       state: 'attached', alive: true, targetId,
       size: PROJECTILE_SIZE, x: bp.x, y: bp.y,
@@ -243,9 +270,9 @@ const coreArt = {
       t: 0, ttl: 0, startX: 0, startY: 0, arcH: 0,
       hitApplied: false,
       explode: makeAnim('ball_explode', 18, false),
-
       prevX: bp.x, prevY: bp.y,
       descending: false,
+      reserved,
     };
     this.attached = p;
     projectiles.push(p);
@@ -280,22 +307,15 @@ const coreArt = {
     const showDecorBall = !this.throwing && (!this.attached || this.attached.state !== 'attached');
     if (showDecorBall) {
       const ballImg = getImage('ball_idle');
-      if (ballImg) {
-        const bp = this.ballPos(0);
-        const size = PROJECTILE_SIZE;
-        drawSprite(ballImg, bp.x, bp.y, size);
-      }
+      if (ballImg) drawSprite(ballImg, this.ballPos(0).x, this.ballPos(0).y, PROJECTILE_SIZE);
     }
   }
 };
 
-// Set core collision radius based on the visual base width.
-// Increase mult to stop enemies farther from center (e.g. 1.00..1.05). Decrease to allow closer.
 function setCoreRadiusFromArt(mult = 0.98) {
   const visualRadius = (coreArt.baseW * (coreArt.scale || 1)) * 0.5;
   core.radius = Math.round(visualRadius * mult);
 }
-// Initialize once now that coreArt exists
 setCoreRadiusFromArt();
 
 // -------------------- Enemy factory --------------------
@@ -308,7 +328,6 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
 
   const typeId = def.id || overrides.type || (def.boss ? 'boss' : 'enemy');
 
-  // allow per-enemy animation override via def.anim; resolve via Engine registry
   const baseProfile = DEFAULT_ANIM[def.boss ? 'boss' : typeId] || {};
   const profile = (typeof Engine.resolveAnimProfile === 'function')
     ? Engine.resolveAnimProfile(typeId, !!def.boss, baseProfile, def.anim)
@@ -322,6 +341,8 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
     goldOnDeath, boss: !!def.boss,
     anim: (profile && getFrames(profile.walk)) ? makeAnim(profile.walk, profile.fpsWalk ?? 8, true) : null,
     _switchedToAttack: false,
+
+    incomingDamage: 0, // reservation tally
 
     ...overrides,
 
@@ -385,20 +406,30 @@ Engine.setEnemyFactory(function enemyFactory(def, waveNum = 1, overrides = {}) {
       }
       if (!drew) { ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(p.x, p.y, this.radius, 0, Math.PI*2); ctx.fill(); }
 
-      // HP bar
+      // HP bar with subtle incoming overlay (optional visual)
       const w = this.boss ? 36 : 20, h = 4, x = p.x - w/2, y = p.y - (this.boss ? 42 : 30);
       ctx.fillStyle = '#333'; ctx.fillRect(x, y, w, h);
-      ctx.fillStyle = '#7fdb6a'; ctx.fillRect(x, y, clamp((this.hp/this.hpMax),0,1)*w, h);
+      const frac = clamp(this.hp/this.hpMax,0,1);
+      ctx.fillStyle = '#7fdb6a'; ctx.fillRect(x, y, frac*w, h);
+      const incoming = clamp((this.incomingDamage||0)/this.hpMax, 0, 1);
+      if (incoming > 0 && frac > 0) {
+        const left = clamp(frac - incoming, 0, frac);
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.fillRect(x + left*w, y, Math.min(incoming, frac)*w, h);
+      }
     }
   };
 });
 
-// -------------------- Projectiles --------------------
+// -------------------- Targeting --------------------
 function pickTarget(){
   let best = null, bestDist = Infinity;
   for (const e of enemies) {
-    const p = e.pos; const d = dist(core.x(), core.y(), p.x, p.y);
-    if (d <= core.range && d < bestDist) { best = e; bestDist = d; }
+    const p = e.pos;
+    const d = dist(core.x(), core.y(), p.x, p.y);
+    if (d > core.range) continue;
+    if (effHP(e) <= 0) continue; // covered by reservations
+    if (d < bestDist) { best = e; bestDist = d; }
   }
   return best;
 }
@@ -426,7 +457,7 @@ function loop(now){
   update(dt); draw(); requestAnimationFrame(loop);
 }
 
-// Start AFTER assets are ready (mods may call Engine.setAssets before/after)
+// Boot
 (async () => {
   try {
     Engine.emit('bootstrap:beforeAssets');
@@ -435,11 +466,45 @@ function loop(now){
   } catch (e) {
     console.warn('Asset load failed:', e);
   }
-  // ensure radius matches the visuals once assets/scale are settled
   setCoreRadiusFromArt();
+
+  // show pre-game screen (paused) via UI module
+  S.paused = true;
+  initMenuUI({
+    onPlay: () => {
+      S.paused = false;
+      if (!buildSnapshot().waveRunning) startWave();
+      ensureHudMenuButton(() => openPauseMenu({
+        onResume: () => { S.paused = false; },
+        onSurrender: () => { surrender(); }, // defeat flow handled in update()
+        onMainMenu: () => {
+          removeHudMenuButton();
+          resetGame();
+          S.paused = true;
+          initMenuUI({
+            onPlay: () => {
+              S.paused = false;
+              if (!buildSnapshot().waveRunning) startWave();
+              ensureHudMenuButton(() => openPauseMenu({
+                onResume: () => { S.paused = false; },
+                onSurrender: () => { surrender(); },
+                onMainMenu: () => {
+                  removeHudMenuButton(); resetGame(); S.paused = true; initMenuUI({ onPlay: arguments.callee });
+                }
+              }));
+            },
+            onBuyPermanent: (id) => { buyPermanent(id); }
+          });
+        }
+      }));
+    },
+    onBuyPermanent: (id) => { buyPermanent(id); }
+  });
+
   requestAnimationFrame(loop);
 })();
 
+// -------------------- Update --------------------
 function update(dt){
   for (const e of enemies) e.update(dt);
 
@@ -450,6 +515,8 @@ function update(dt){
       if (target) {
         coreArt.startThrow(target.id);
         core._fireTimer = 1 / core.fireRate;
+      } else {
+        core._fireTimer = 0.05; // retry soon if no valid target
       }
     }
   }
@@ -478,7 +545,10 @@ function update(dt){
 
       if (p.attachT <= 0) {
         const tgt = enemies.find(e => e.id === p.targetId);
-        if (!tgt) { p.alive = false; continue; }
+        if (!tgt) {
+          releaseReservation(p.targetId, p.reserved||0);
+          p.alive = false; continue;
+        }
         const end = tgt.pos;
         p.state = 'arc';
         p.t = 0; p.startX = p.x; p.startY = p.y;
@@ -491,7 +561,10 @@ function update(dt){
 
     } else if (p.state === 'arc') {
       const tgt = enemies.find(e => e.id === p.targetId);
-      if (!tgt) { p.alive = false; continue; }
+      if (!tgt) {
+        releaseReservation(p.targetId, p.reserved||0);
+        p.alive = false; continue;
+      }
 
       const end = tgt.pos;
       const prevY = p.y;
@@ -508,6 +581,7 @@ function update(dt){
 
       const hitR = (tgt.radius || 16) + 10;
       if (dist(p.x, p.y, end.x, end.y) <= hitR || u >= 1) {
+        if (p.reserved) { releaseReservation(p.targetId, p.reserved); p.reserved = 0; }
         if (!p.hitApplied) { applyDamage(tgt, core.damage); p.hitApplied = true; }
         p.state = 'explode'; p.explode.reset();
       }
@@ -524,16 +598,40 @@ function update(dt){
   for (let i=enemies.length-1; i>=0; i--) {
     const e = enemies[i];
     if (e.hp <= 0) {
-      Engine.addGold(e.goldOnDeath);
+      const goldGain = Math.round(e.goldOnDeath * (core.goldMul || 1));
+      Engine.addGold(goldGain);
       Engine.emit('enemy:death', { enemy: e, wave: S.wave });
       enemies.splice(i,1);
     }
   }
 
-  // defeat
+  // defeat → show defeat UI through overlay.js
   if (!S.defeated && core.hp <= 0) {
     S.defeated = true; S.waveRunning = false; spawners.length = 0;
-    setWaveStatus('Defeated ❌  (Press Reset)');
+    const add = Engine.calcPrestigeAward({ kind:'defeat', wave:S.wave })|0;
+    if (add > 0) { S.prestige += add; setWaveStatus(`Defeated ❌ (+${add} ⚜)`); }
+    else setWaveStatus('Defeated ❌');
+
+    removeHudMenuButton();
+    showDefeatMenu({
+      wave: S.wave,
+      prestige: add,
+      onTryAgain: () => {
+        resetGame();
+        S.paused = false;
+        startWave();
+        ensureHudMenuButton(() => openPauseMenu({
+          onResume: () => { S.paused = false; },
+          onSurrender: () => { surrender(); },
+          onMainMenu: () => { removeHudMenuButton(); resetGame(); S.paused = true; initMenuUI({ onPlay: startFromMenu, onBuyPermanent: buyPermanent }); }
+        }));
+      },
+      onMainMenu: () => {
+        resetGame();
+        S.paused = true;
+        initMenuUI({ onPlay: startFromMenu, onBuyPermanent: buyPermanent });
+      }
+    });
   }
 
   // wave end
@@ -546,32 +644,31 @@ function update(dt){
   notifySubscribers(buildSnapshot());
 }
 
+// -------------------- Draw --------------------
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-    // --- draw background map (behind everything) ---
+  // background
   const mapImg = getImage('map');
   if (mapImg && mapImg.width && mapImg.height) {
-    // cover canvas while preserving aspect ratio
     const w = mapImg.width, h = mapImg.height;
-    const sx = canvas.width / w, sy = canvas.height / h;
-    const s = Math.max(sx, sy);
+    const s = Math.max(canvas.width / w, canvas.height / h);
     const drawW = w * s, drawH = h * s;
     const dx = (canvas.width  - drawW) / 2;
     const dy = (canvas.height - drawH) / 2;
     ctx.drawImage(mapImg, dx, dy, drawW, drawH);
   }
 
-  // core (no decorative ball)
+  // core
   coreArt.draw();
 
-  // Mod overlays (auras, domes, etc.) – drawn under sprites
+  // overlays (engine-side)
   Engine.drawOverlays(ctx);
 
   // enemies
   for (const e of enemies) e.draw();
 
-  // effects (draw over enemies)
+  // effects
   for (let i = effects.length - 1; i >= 0; i--) {
     const fx = effects[i];
     let keep = true;
@@ -591,7 +688,7 @@ function draw(){
     ctx.textAlign = 'center'; ctx.fillText('BOSS', canvas.width/2, y - 2);
   }
 
-  // projectiles (the ONLY ball you see)
+  // projectiles
   for (const p of projectiles) {
     if (p.state === 'attached' || p.state === 'arc') {
       const key = p.descending ? 'ball_down' : 'ball_idle';
@@ -605,14 +702,14 @@ function draw(){
   }
 }
 
-// -------------------- Game actions --------------------
+// -------------------- Actions --------------------
 function startWave() {
   if (S.waveRunning || S.defeated) return;
   S.wave += 1; S.waveRunning = true;
   Engine.emit('wave:start', { wave: S.wave });
   const baseCadence = Math.max(0.25, 0.55 - S.wave * 0.02);
   const packs = waveRecipe(S.wave);
-  if (packs.some(p => p.boss)) setWaveStatus('Boss!'); else setWaveStatus('Running…');
+  setWaveStatus(packs.some(p => p.boss) ? 'Boss!' : 'Running…');
   for (const p of packs) spawnBatch(p.type, p.count, baseCadence * (p.cadenceMul || 1));
 }
 function resetGame() {
@@ -620,10 +717,44 @@ function resetGame() {
   spawners.length = 0;
   S.wave = 0; S.waveRunning = false; S.defeated = false;
   core.hp = core.hpMax; S.gold = 0;
-  upgrades.dmg = upgrades.rof = upgrades.range = 0; core.applyUpgrades();
+  upgrades.dmg = upgrades.rof = upgrades.range = 0;
+  core.applyUpgrades();
+  Engine.applyPermToCore(core);
   Engine.runResetHooks();
   setWaveStatus('No wave'); saveGame(); notifySubscribers(buildSnapshot());
 }
+
+// Hard reset: wipe save, prestige, permanent levels, gold upgrades, and run state
+function hardReset() {
+  try { localStorage.removeItem('mage-core:v1'); } catch {}
+
+  // clear run + stats
+  enemies.length = 0; projectiles.length = 0; effects.length = 0;
+  // if spawners is in this scope:
+  if (typeof spawners !== 'undefined') spawners.length = 0;
+
+  S.wave = 0; S.waveRunning = false; S.defeated = false;
+  S.gold = 0; S.prestige = 0;
+  core.hp = core.hpMax;
+
+  // clear gold upgrades
+  upgrades.dmg = 0;
+  upgrades.rof = 0;
+  upgrades.range = 0;
+
+  // clear *all* permanent levels (including abilities)
+  Engine.setPermLevels({});
+
+  // re-apply from clean slate
+  core.applyUpgrades();
+  Engine.applyPermToCore(core);
+  Engine.runResetHooks?.();
+
+  setWaveStatus('Progress wiped');
+  notifySubscribers(buildSnapshot());
+}
+
+
 function buyUpgrade(type) {
   const def = Engine.registry?.upgrades?.[type];
   if (!def) return;
@@ -634,37 +765,91 @@ function buyUpgrade(type) {
   upgrades[type] = level + 1;
   core.applyUpgrades();
   if (typeof def.apply === 'function') def.apply(core, upgrades[type]);
+  Engine.applyPermToCore(core);
   saveGame(); notifySubscribers(buildSnapshot());
+}
+function buyPermanent(rowId) {
+  const m = String(rowId).split(':');
+  if (m.length !== 2) return false;
+  const kind = m[0], id = m[1];
+
+  const levels = Engine.getPermLevels();
+  const key = (kind === 'ability') ? `ability:${id}` : id;
+
+  const cur = levels[key]|0;
+  const price = 5 + Math.floor(Math.pow(1.35, cur));
+  if ((S.prestige|0) < price) return false;
+
+  S.prestige -= price;
+  levels[key] = cur + 1;
+  Engine.setPermLevels(levels);
+
+  core.applyUpgrades();
+  Engine.applyPermToCore(core);
+
+  saveGame(); notifySubscribers(buildSnapshot());
+  Engine.emit('meta:buy', { id: key, level: levels[key] });
+  return true;
 }
 function castAbility(which) {
   const ok = Engine.castAbility(which);
   if (ok) { saveGame(); notifySubscribers(buildSnapshot()); }
   return ok;
 }
+function surrender() {
+  if (S.defeated) return;
+  // end run immediately; update() will detect defeat and show defeat menu
+  core.hp = 0;
+}
 
-// Keybindings
+// Keybindings — just actions; UI overlay handles DOM
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === 'q') castAbility('nova');
   if (k === 'w') castAbility('frost');
+  if (k === 'escape') {
+    ensureHudMenuButton(() => openPauseMenu({
+      onResume: () => { S.paused = false; },
+      onSurrender: () => { surrender(); },
+      onMainMenu: () => { removeHudMenuButton(); resetGame(); S.paused = true; initMenuUI({ onPlay: startFromMenu, onBuyPermanent: buyPermanent }); }
+    }));
+    S.paused = true;
+  }
 });
 
-// -------------------- Engine API (for Vue) --------------------
+// Expose to UI
 window.engine = {
   getSnapshot: buildSnapshot,
   subscribe,
   actions: {
-    startWave, reset: resetGame, buy: buyUpgrade, cast: castAbility,
+    startWave, reset: resetGame, buy: buyUpgrade, buyPermanent, cast: castAbility,
     loadSave: loadGame, wipeSave: wipeSave, saveNow: saveGame, hasSave: hasSave,
     setPaused: (v) => { S.paused = !!v; notifySubscribers(buildSnapshot()); },
     togglePause: () => { S.paused = !S.paused; notifySubscribers(buildSnapshot()); },
     setSpeed: (n) => { S.timeScale = Math.max(1, n|0); notifySubscribers(buildSnapshot()); },
     setAutoStart: (v) => { S.autoStart = !!v; notifySubscribers(buildSnapshot()); },
+    surrender,
+    hardReset,
   }
 };
 
-// initial
+// initial load
 if (!loadGame()){
   setWaveStatus('No wave');
   notifySubscribers(buildSnapshot());
+}
+
+// ---------- Prestige rules ----------
+Engine.addPrestigeRule(({kind, wave}) => kind==='bossKill' ? (1 + Math.floor((wave||0)/5)) : 0);
+Engine.addPrestigeRule(({kind, wave}) => kind==='defeat'   ? Math.floor((wave||0)/3)       : 0);
+
+// helper: start from menu (used by overlay callbacks)
+function startFromMenu(){
+  S.paused = false;
+  if (!buildSnapshot().waveRunning) startWave();
+  ensureHudMenuButton(() => openPauseMenu({
+    onResume: () => { S.paused = false; },
+    onSurrender: () => { surrender(); },
+    onMainMenu: () => { removeHudMenuButton(); resetGame(); S.paused = true; initMenuUI({ onPlay: startFromMenu, onBuyPermanent: buyPermanent }); }
+  }));
 }

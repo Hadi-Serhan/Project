@@ -29,7 +29,7 @@ body{
 
 /* Top HUD */
 .hud{
-  position:fixed; left:16px; right:416px; top:16px;
+  position:fixed; left:120px; right:416px; top:16px;
   display:flex; align-items:center; gap:16px; pointer-events:none;
 }
 .hud .hud-group{

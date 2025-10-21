@@ -1,6 +1,9 @@
 // mage-core/src/engine.js
-// Tiny Engine shim: registries + event bus + mod hooks + helpers.
+// Tiny Engine shim: registries + event bus + mod hooks + helpers + prestige & permanent upgrades.
 
+///////////////////////
+// Event Bus
+///////////////////////
 const listeners = new Map(); // event -> Set<fn>
 function on(evt, fn) { if (!listeners.has(evt)) listeners.set(evt, new Set()); listeners.get(evt).add(fn); return () => off(evt, fn); }
 function off(evt, fn) { const set = listeners.get(evt); if (set) set.delete(fn); }
@@ -9,7 +12,9 @@ function emit(evt, payload) {
   if (set) for (const fn of set) { try { fn(payload); } catch (e) { console.warn('[Engine emit error]', evt, e); } }
 }
 
-// Simple deterministic-ish RNG (mulberry32)
+///////////////////////
+// RNG (mulberry32)
+///////////////////////
 function makeRng(seed = 1337) {
   let t = seed >>> 0;
   return function rng() {
@@ -22,36 +27,58 @@ function makeRng(seed = 1337) {
 }
 let _rng = makeRng(1337);
 
+///////////////////////
 // Registries (data-first)
+///////////////////////
 const registry = {
   enemies: Object.create(null),
   abilities: Object.create(null),
   upgrades: Object.create(null),
-  waves: Object.create(null),          // optional: named wave recipes
-  animProfiles: Object.create(null),   // <<< NEW: per-type animation profile overrides
+  waves: Object.create(null),
+  animProfiles: Object.create(null),
 };
 
-// Factories/sinks are provided by the game at boot (so engine stays decoupled)
-let enemyFactory = null;           // (def, waveNum, overrides) => enemyInstance
-let goldSink = null;               // (amount) => void
-let coreMutator = null;            // (fn(core)) => void
+///////////////////////
+// Factories / sinks (provided by main game)
+///////////////////////
+let enemyFactory = null;     // (def, waveNum, overrides) => enemyInstance
+let goldSink = null;         // (amount) => void
+let coreMutator = null;      // (fn(core)) => void
 
-// ---- Wave recipe plumbing ----
-let _defaultWaveRecipe = null;             // function | null
-let _currentWaveRecipe  = (w)=>[];         // active recipe the game uses
-let _waveRecipeBridge   = null;            // function(fn) from content.js
+///////////////////////
+// Wave recipe plumbing
+///////////////////////
+let _defaultWaveRecipe = null;
+let _currentWaveRecipe  = (w)=>[];
+let _waveRecipeBridge   = null;
 
-// ---- Mod hooks ----
+///////////////////////
+// Mod hooks
+///////////////////////
 const enemyModifiers = new Set();  // f(enemy, dt, ctx) -> {speedMul?, atkMul?}
 const overlayDrawers = new Set();  // f(ctx) -> void
 const resetHooks     = new Set();  // f() -> void
 
-// ---- Bridges that mods/content can set/use ----
+///////////////////////
+// Bridges
+///////////////////////
 let abilityBridge = { register(){}, remove(){}, cast(){ return false; } };
-let assetsBridge  = async (_manifest) => {}; // set by assets.js
+let assetsBridge  = async (_manifest) => {};
 
-// ---- Live state accessor (read-only reference for mods) ----
+///////////////////////
+// Live state accessor
+///////////////////////
 let stateAccessor = null; // () => ({ core, enemies, effects, projectiles })
+
+///////////////////////
+// Permanent Upgrades (Prestige)
+///////////////////////
+let _permLevels = Object.create(null); // id -> level (numbers)
+let _abilityCdMul = 1;                 // global CD mul (still supported)
+const _prestigeRules = new Set();      // (evt) => non-negative integer
+
+// Helper
+const _num = (n, d=0) => Number.isFinite(n) ? n : d;
 
 const Engine = {
   registry,
@@ -63,19 +90,19 @@ const Engine = {
   rng: () => _rng(),
   setSeed(seed) { _rng = makeRng(seed|0); },
 
-  // Factories/sinks (set by main game)
+  // Factories / sinks
   setEnemyFactory(fn) { enemyFactory = fn; },
   setGoldSink(fn)     { goldSink = fn; },
   setCoreMutator(fn)  { coreMutator = fn; },
 
-  // Registration API (mods/content packs)
+  // Registration
   registerEnemyType(id, def) { registry.enemies[id] = def; },
-  registerAbility(id, def)   { registry.abilities[id] = def; },
-  removeAbility(id)          { delete registry.abilities[id]; },
-  registerUpgrade(id, def)   { registry.upgrades[id] = def; },
-  registerWaveRecipe(id, def){ registry.waves[id] = def; },
+  registerAbility(id, def)   { registry.abilities[id] = def; emit('registry:ability', { id, def }); },
+  removeAbility(id)          { delete registry.abilities[id]; emit('registry:ability:removed', { id }); },
+  registerUpgrade(id, def)   { registry.upgrades[id] = def; emit('registry:upgrade', { id, def }); },
+  registerWaveRecipe(id, fn) { registry.waves[id] = fn; },
 
-  // ---- Wave recipe API used by content.js and mods ----
+  // Waves
   setDefaultWaveRecipe(fn) {
     _defaultWaveRecipe = (typeof fn === 'function') ? fn : null;
     _currentWaveRecipe = _defaultWaveRecipe || ((w)=>[]);
@@ -110,19 +137,21 @@ const Engine = {
   addGold(amount) { if (goldSink) goldSink(amount|0); },
   modifyCore(fn)  { if (coreMutator) coreMutator(fn); },
 
-  // ----- Ability bridge (pluggable by abilities.js or mods) -----
+  // Ability bridge
   setAbilityBridge(bridge) {
     abilityBridge = Object.assign({ register(){}, remove(){}, cast(){ return false; } }, bridge || {});
   },
   castAbility(id, args={}) {
     try { return !!abilityBridge.cast(id, args); } catch (e) { console.warn('[Engine.castAbility]', e); return false; }
   },
+  getAbilityCooldownMul(){ return _abilityCdMul; },
+  setAbilityCooldownMul(m){ _abilityCdMul = _num(m,1) > 0 ? m : 1; },
 
-  // ----- Asset bridge (so mods can add/override art at runtime) -----
+  // Asset bridge
   setAssetsBridge(fn) { assetsBridge = fn || assetsBridge; },
   async setAssets(manifest = {}) { try { await assetsBridge(manifest); } catch (e) { console.warn('[Engine.setAssets]', e); } },
 
-  // ----- Animation profile overrides (per type / global) -----
+  // Animation profiles
   setAnimProfile(typeOrKey, profile) {
     const cur = registry.animProfiles[typeOrKey] || {};
     registry.animProfiles[typeOrKey] = { ...cur, ...profile };
@@ -135,12 +164,12 @@ const Engine = {
     return { ...fallbackProfile, ...fromReg, ...(defAnimOverride || {}) };
   },
 
-  // ----- State accessor for mods -----
+  // State accessor
   setStateAccessor(fn) { stateAccessor = fn; },
   setStateApi(fn) { stateAccessor = fn; },
   get state() { return stateAccessor ? stateAccessor() : null; },
 
-  // ----- Enemy modifier hook chain -----
+  // Enemy modifiers & overlays
   addEnemyModifier(fn) { if (typeof fn === 'function') enemyModifiers.add(fn); return () => enemyModifiers.delete(fn); },
   applyEnemyModifiers(enemy, dt, ctx) {
     let speedMul = 1.0, atkMul = 1.0;
@@ -157,17 +186,105 @@ const Engine = {
     atkMul   = Math.max(0.1, atkMul);
     return { speedMul, atkMul };
   },
-
-  // ----- Overlay drawers (auras, fields, debug visuals) -----
   addOverlayDrawer(fn) { if (typeof fn === 'function') overlayDrawers.add(fn); return () => overlayDrawers.delete(fn); },
   drawOverlays(ctx) { for (const fn of overlayDrawers) { try { fn(ctx); } catch (e) { console.warn('[Engine overlay error]', e); } } },
-
-  // ----- Reset hooks (mods clear their state on reset) -----
   addResetHook(fn) { if (typeof fn === 'function') resetHooks.add(fn); return () => resetHooks.delete(fn); },
   runResetHooks() { for (const fn of resetHooks) { try { fn(); } catch (e) { console.warn('[Engine reset hook error]', e); } } },
+
+  ///////////////////////
+  // Prestige & Permanent Upgrades
+  ///////////////////////
+
+  getPermLevels() { return { ..._permLevels }; },
+  setPermLevels(levels = {}) {
+    _permLevels = Object.create(null);
+    for (const [k, v] of Object.entries(levels || {})) _permLevels[k] = v|0;
+    emit('meta:levels', { levels: Engine.getPermLevels() });
+  },
+  serializePerm() { return Engine.getPermLevels(); },
+
+  // Optional helper for mods: get level for a specific ability id
+  getAbilityPermLevel(id){ return _permLevels[`ability:${id}`]|0; },
+
+  applyPermToCore(core) {
+    if (!core) return;
+
+    // multipliers (used by other systems)
+    let dmgMul = 1.0, rofMul = 1.0, goldMul = 1.0, cdMul = 1.0;
+
+    // ---- Upgrades: check per-upgrade id perms ----
+    for (const [id, def] of Object.entries(registry.upgrades)) {
+      const lvl = _permLevels[id] | 0;
+      if (lvl <= 0) continue;
+
+      if (typeof def.permanentApply === 'function') {
+        try { def.permanentApply(core, lvl, { id, def, levels: _permLevels }); }
+        catch (e) { console.warn('[Engine permanentApply error]', id, e); }
+        continue;
+      }
+
+      const key = id.toLowerCase();
+      if (key.includes('dmg') || key.includes('damage')) {
+        dmgMul *= Math.pow(1.05, lvl);
+      } else if (key.includes('rof') || key.includes('speed') || key.includes('firerate') || key.includes('rate')) {
+        rofMul *= Math.pow(1.03, lvl);
+      } else if (key.includes('range')) {
+        if (Number.isFinite(core.range)) core.range = Math.round(core.range * Math.pow(1.02, lvl));
+      } else if (key.includes('gold') || key.includes('loot')) {
+        goldMul *= Math.pow(1.05, lvl);
+      } else if (key.includes('ability') || key.includes('cooldown') || key.includes('cd')) {
+        cdMul *= Math.pow(0.96, lvl);
+      }
+    }
+
+    // Stamp multipliers & apply common ones
+    core.perm = { dmgMul, rofMul, goldMul, cdMul };
+    if (Number.isFinite(core.damage))   core.damage   = Math.round(core.damage * dmgMul);
+    if (Number.isFinite(core.fireRate)) core.fireRate = core.fireRate * rofMul;
+    core.goldMul = goldMul;
+    Engine.setAbilityCooldownMul(cdMul);
+
+    // ---- Abilities: support per-ability permanent levels ----
+    // Keyed as "ability:<id>". Mods can override with ability.permanentApply(level, ctx).
+    for (const [abId, ab] of Object.entries(registry.abilities)) {
+      const lvl = _permLevels[`ability:${abId}`] | 0;
+      if (lvl <= 0) continue;
+
+      if (typeof ab.permanentApply === 'function') {
+        try { ab.permanentApply(lvl, { id: abId, ability: ab, core, levels: _permLevels }); }
+        catch (e) { console.warn('[Engine ability permanentApply error]', abId, e); }
+        continue;
+      }
+
+      // Generic heuristics (safe defaults; mods can override):
+      // - Cooldown -3% / level (min 0.5s)
+      // - If ability exposes damageBase, +2% / level
+      // - If ability exposes radius, +1.5% / level
+      if (Number.isFinite(ab.cd)) {
+        ab.cd = Math.max(0.5, ab.cd * Math.pow(0.97, lvl));
+      }
+      if (Number.isFinite(ab.damageBase)) {
+        ab.damageBase = Math.round(ab.damageBase * Math.pow(1.02, lvl));
+      }
+      if (Number.isFinite(ab.radius)) {
+        ab.radius = Math.round(ab.radius * Math.pow(1.015, lvl));
+      }
+    }
+
+    emit('meta:apply', { levels: Engine.getPermLevels() });
+  },
+
+  addPrestigeRule(fn){ if (typeof fn === 'function') _prestigeRules.add(fn); return () => _prestigeRules.delete(fn); },
+  calcPrestigeAward(evt){
+    let sum = 0;
+    for (const fn of _prestigeRules) {
+      let v = 0;
+      try { v = fn(evt)|0; } catch(e){ v = 0; console.warn('[Engine prestige rule error]', e); }
+      if (v > 0) sum += v;
+    }
+    return sum|0;
+  },
 };
 
-// For mods that may want global access later
 window.Engine = Engine;
-
 export default Engine;

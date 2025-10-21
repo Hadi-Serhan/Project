@@ -16,9 +16,15 @@ export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ===== Canonical game state =====
 export let gold = 0;
+export let prestige = 0;
 export let wave = 0;
 export let waveRunning = false;
 export let defeated = false;
+
+export const lifetime = {
+  bestWave: 0,
+  timeAlived: 0, // seconds
+}
 
 export let waveStatus = 'No wave';
 
@@ -158,6 +164,7 @@ Engine.on('registry:upgrade:removed', ({ id }) => {
 
 // Export setters used by other modules / UI
 export function setGold(v){ gold = v; }
+export function setPrestige(v){ prestige = Math.max(0, v|0); }
 export function setWave(v){ wave = v; }
 export function setWaveRunning(v){ waveRunning = v; }
 export function setDefeatedFlag(v){ defeated = v; }

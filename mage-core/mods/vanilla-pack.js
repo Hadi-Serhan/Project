@@ -89,7 +89,7 @@ Engine.registerUpgrade('rof', {
   title: 'Fire Rate',
   desc: 'Increase core fire rate (+0.2 per level).',
   cost(level) { const base=20, k=1.5; return Math.floor(base * Math.pow(k, level)); },
-  apply(c, level) { if (level) c.fireRate = c.baseFireRate + 0.2 * level; }
+  apply(c, level) { if (level) c.fireRate += 0.2 * level; }
 });
 
 Engine.registerUpgrade('range', {
