@@ -1,4 +1,4 @@
-//mage-core/src/state.js
+// mage-core/src/state.js
 import Engine from './engine.js';
 
 // ===== Canvas / basics =====
@@ -24,7 +24,7 @@ export let defeated = false;
 export const lifetime = {
   bestWave: 0,
   timeAlived: 0, // seconds
-}
+};
 
 export let waveStatus = 'No wave';
 
@@ -66,7 +66,7 @@ export function notifySubscribers(snapshot){
     gold,
     // expose dynamic costs for known base upgrades; UI can also iterate Engine.registry.upgrades
     costs: { dmg: cost('dmg'), rof: cost('rof'), range: cost('range') },
-    cd: { nova: 0, frost: 0 }, // main.js will send real values
+    cd: { nova: 0, frost: 0 }, // main.js can overwrite with live values
     waveStatus,
     paused, timeScale, autoStart,
   };
@@ -77,7 +77,7 @@ export function notifySubscribers(snapshot){
 export const core = {
   x: cx, y: cy, radius: 24,
 
-  // base stats
+  // base stats (will be filled from Engine core defaults)
   baseDamage: 25,
   baseFireRate: 1.2,
   baseRange: 180,
@@ -88,6 +88,15 @@ export const core = {
   range: 180,
 
   hpMax: 100, hp: 100,
+
+  armor: 0,             // flat reduction per hit 
+  hpRegen: 0,           // HP per second
+  auraDps: 0,           // passive AoE DPS
+  auraRadius: 0,        // AoE radius in px
+  critChance: 0,        // 0..1
+  critMult: 1,          // e.g. 1.5
+  goldMul: 1,           // gold multiplier from perms/upgrades
+
   _fireTimer: 0,
 
   // recompute from scratch each time using upgrade defs
@@ -96,6 +105,14 @@ export const core = {
     this.damage   = this.baseDamage;
     this.fireRate = this.baseFireRate;
     this.range    = this.baseRange;
+    this.armor       = 0;
+    this.hpRegen     = 0;
+    this.auraDps     = 0;
+    this.auraRadius  = 0;
+    this.critChance  = 0;
+    this.critMult    = 1;
+    this.goldMul     = 1;
+
 
     const ctx = {
       // useful helpers for mods
@@ -112,6 +129,8 @@ export const core = {
         try { def.apply(this, lvl, ctx); } catch (e) { console.warn('upgrade apply() failed', id, e); }
       }
     }
+    // Keep hp within new max
+    this.hp = Math.min(this.hp, this.hpMax|0);
   },
 
   draw() {
@@ -126,7 +145,42 @@ export const core = {
     ctx.beginPath(); ctx.arc(this.x(), this.y(), this.range, 0, Math.PI*2); ctx.stroke();
   }
 };
+
+
+// make core modifications available before mods load
+Engine.setCoreMutator((fn) => {
+  try { fn(core); } catch (e) { console.warn('[Engine.setCoreMutator]', e); }
+});
+
+
+// ---- Pull base stats from Engine core defaults (NEW) ----
+function _applyCoreDefaultsFromEngine() {
+  const defs = (typeof Engine.getCoreDefaults === 'function')
+    ? Engine.getCoreDefaults()
+    : { damage: 25, fireRate: 1.2, range: 180, hpMax: 100 };
+
+  core.baseDamage   = Number.isFinite(defs.damage)   ? defs.damage   : core.baseDamage;
+  core.baseFireRate = Number.isFinite(defs.fireRate) ? defs.fireRate : core.baseFireRate;
+  core.baseRange    = Number.isFinite(defs.range)    ? defs.range    : core.baseRange;
+
+  // If hpMax changes, clamp current hp
+  if (Number.isFinite(defs.hpMax) && defs.hpMax > 0) {
+    core.hpMax = defs.hpMax|0;
+    core.hp = Math.min(core.hp, core.hpMax);
+  }
+}
+
+// Initial defaults load
+_applyCoreDefaultsFromEngine();
+// Now compute live stats from base + upgrades
 core.applyUpgrades();
+
+// React to future default changes (mods can call Engine.setCoreDefaults)
+Engine.on('core:defaults', () => {
+  _applyCoreDefaultsFromEngine();
+  core.applyUpgrades();
+  notifySubscribers();
+});
 
 // ===== Collections =====
 export const enemies = [];

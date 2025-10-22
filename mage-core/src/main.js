@@ -165,13 +165,13 @@ function snapshotPermanent() {
   for (const [id, def] of Object.entries(Engine.registry?.upgrades || {})) {
     const lvl = (Engine.getPermLevels()[id] | 0);
     const title = def.title || id;
-    const price = 5 + Math.floor(Math.pow(1.35, lvl));
+    const price = Engine.getPermanentPrice('upgrade', id, lvl);
     rows.push({ id: `upgrade:${id}`, title, level: lvl, price, kind: 'upgrade' });
   }
   for (const [id, ab] of Object.entries(Engine.registry?.abilities || {})) {
     const lvl = (Engine.getAbilityPermLevel?.(id) || 0);
     const title = ab.title || id;
-    const price = 5 + Math.floor(Math.pow(1.35, lvl));
+    const price = Engine.getPermanentPrice('ability', id, lvl);
     rows.push({ id: `ability:${id}`, title, level: lvl, price, kind: 'ability' });
   }
   rows.sort((a,b)=> a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
@@ -615,6 +615,17 @@ function update(dt){
     if (e.hp <= 0) {
       const goldGain = Math.round(e.goldOnDeath * (core.goldMul || 1));
       Engine.addGold(goldGain);
+
+      // Prestige
+      let award = Engine.calcPrestigeAward({ kind: 'enemyKill', wave: S.wave, enemy: e })|0;
+      if (e.boss) {
+        award += Engine.calcPrestigeAward({ kind: 'bossKill', wave: S.wave, enemy: e })|0;
+      }
+      if (award > 0) { 
+        S.prestige += award;
+        Engine.emit('prestige:award', { by: 'kill', amount: award, enemy: e, wave: S.wave});
+       }
+
       Engine.emit('enemy:death', { enemy: e, wave: S.wave });
       enemies.splice(i,1);
     }
@@ -655,6 +666,8 @@ function update(dt){
   // wave end
   if (!S.defeated && S.waveRunning && spawners.length === 0 && enemies.length === 0){
     S.waveRunning = false; setWaveStatus('Cleared ✅');
+    const award = Engine.calcPrestigeAward({ kind: 'waveClear', wave: S.wave })|0;
+    if (award > 0) { S.prestige += award; }
     Engine.emit('wave:end', { wave: S.wave });
     if (S.autoStart) startWave();
   }
@@ -769,7 +782,7 @@ function hardReset() {
 
 function buyUpgrade(type) {
   const def = Engine.registry?.upgrades?.[type];
-  if (!def) return false;                                    // <- explicit
+  if (!def) return false;                                   
 
   const level = upgrades[type] | 0;
   const cost =
@@ -777,7 +790,7 @@ function buyUpgrade(type) {
       ? Math.max(0, def.cost(level))
       : Math.max(0, Number(def.cost) || 0);
 
-  if ((S.gold | 0) < cost) return false;                     // <- explicit
+  if ((S.gold | 0) < cost) return false;                    
 
   S.gold -= cost;
   upgrades[type] = level + 1;
@@ -790,7 +803,7 @@ function buyUpgrade(type) {
   notifySubscribers(buildSnapshot());
   Engine.emit?.('upgrade:buy', { type, level: upgrades[type], cost });
 
-  return true;                                               // <- the key fix
+  return true;                                            
 }
 
 function buyPermanent(rowId) {
@@ -802,7 +815,12 @@ function buyPermanent(rowId) {
   const key = (kind === 'ability') ? `ability:${id}` : id;
 
   const cur = levels[key]|0;
-  const price = 5 + Math.floor(Math.pow(1.35, cur));
+  const price = Engine.getPermanentPrice(
+    kind === 'ability' ? 'ability' : 'upgrade',
+    id,
+    cur,
+    { wave: S.wave, prestige: S.prestige } 
+  );
 
   if ((S.prestige|0) < price) {
     Audio.play('ui/purchase/decline', { group:'sfx' });
@@ -827,8 +845,8 @@ function castAbility(which) {
     // NEW: look up the ability's own SFX key from the registry
     const meta = Engine.registry?.abilities?.[which];
     const sfxKey =
-      meta?.sfx?.cast ||            // preferred
-      meta?.sfxCast ||              // legacy/back-compat if you ever used this name
+      meta?.sfx?.cast ||            
+      meta?.sfxCast ||              
       null;
 
     if (sfxKey) {

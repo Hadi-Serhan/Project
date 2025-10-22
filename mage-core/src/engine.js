@@ -38,12 +38,37 @@ const registry = {
   animProfiles: Object.create(null),
 };
 
+// --- Permanent upgrade price resolver (mods can override per item) ---
+function _permCostFallback(level){               // default curve
+  return 5 + Math.floor(Math.pow(1.35, level|0));
+}
+
+function _getPermanentPrice(kind, id, level = 0, ctx = {}) {
+  // kind: "upgrade" | "ability"
+  if (kind === 'upgrade') {
+    const def = registry.upgrades[id];
+    if (def && typeof def.permanentCost === 'function') {
+      try { return Math.max(0, def.permanentCost(level|0, ctx)|0); } catch {}
+    }
+  } else if (kind === 'ability') {
+    const ab = registry.abilities[id];
+    if (ab && typeof ab.permanentCost === 'function') {
+      try { return Math.max(0, ab.permanentCost(level|0, ctx)|0); } catch {}
+    }
+  }
+  return _permCostFallback(level|0);
+}
+
+
 ///////////////////////
 // Factories / sinks (provided by main game)
 ///////////////////////
 let enemyFactory = null;     // (def, waveNum, overrides) => enemyInstance
 let goldSink = null;         // (amount) => void
 let coreMutator = null;      // (fn(core)) => void
+
+// NEW: queue modifyCore calls until coreMutator is installed
+const _pendingCoreMods = [];
 
 ///////////////////////
 // Wave recipe plumbing
@@ -77,6 +102,8 @@ let _permLevels = Object.create(null); // id -> level (numbers)
 let _abilityCdMul = 1;                 // global CD mul (still supported)
 const _prestigeRules = new Set();      // (evt) => non-negative integer
 
+
+
 // Helper
 const _num = (n, d=0) => Number.isFinite(n) ? n : d;
 
@@ -90,10 +117,24 @@ const Engine = {
   rng: () => _rng(),
   setSeed(seed) { _rng = makeRng(seed|0); },
 
+  getPermanentPrice(kind, id, level = 0, ctx = {}) { return _getPermanentPrice(kind, id, level, ctx); },
+
   // Factories / sinks
   setEnemyFactory(fn) { enemyFactory = fn; },
   setGoldSink(fn)     { goldSink = fn; },
-  setCoreMutator(fn)  { coreMutator = fn; },
+  setCoreMutator(fn)  {
+    coreMutator = fn;
+    // Apply any pending core mutations that came in before setCoreMutator was ready
+    if (_pendingCoreMods.length) {
+      try {
+        for (const modFn of _pendingCoreMods.splice(0)) {
+          try { coreMutator(modFn); } catch (e) { console.warn('[Engine.setCoreMutator pending core mod error]', e); }
+        }
+      } finally {
+        // no-op
+      }
+    }
+  },
 
   // Registration
   registerEnemyType(id, def) { registry.enemies[id] = def; },
@@ -135,7 +176,16 @@ const Engine = {
     return enemyFactory(def, waveNum, overrides);
   },
   addGold(amount) { if (goldSink) goldSink(amount|0); },
-  modifyCore(fn)  { if (coreMutator) coreMutator(fn); },
+
+  // Allow mods/packs to change core safely at any time
+  modifyCore(fn) {
+    if (typeof fn !== 'function') return;
+    if (coreMutator) {
+      try { coreMutator(fn); } catch (e) { console.warn('[Engine.modifyCore error]', e); }
+    } else {
+      _pendingCoreMods.push(fn);
+    }
+  },
 
   // Ability bridge
   setAbilityBridge(bridge) {
@@ -256,10 +306,7 @@ const Engine = {
         continue;
       }
 
-      // Generic heuristics (safe defaults; mods can override):
-      // - Cooldown -3% / level (min 0.5s)
-      // - If ability exposes damageBase, +2% / level
-      // - If ability exposes radius, +1.5% / level
+      // Generic heuristics
       if (Number.isFinite(ab.cd)) {
         ab.cd = Math.max(0.5, ab.cd * Math.pow(0.97, lvl));
       }
@@ -284,6 +331,15 @@ const Engine = {
     }
     return sum|0;
   },
+
+  resetPrestigeRules() {
+    _prestigeRules.clear();
+  },
+setPrestigeRules(rules = []) {
+    _prestigeRules.clear();
+    for (const fn of rules) if (typeof fn === 'function') _prestigeRules.add(fn);
+  },
+
 };
 
 window.Engine = Engine;
