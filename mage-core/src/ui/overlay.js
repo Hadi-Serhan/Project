@@ -1,5 +1,5 @@
 // mage-core/src/ui/overlay.js
-// Unified, framework-free overlays (menu, pause, defeat) + HUD menu button.
+// Overlays + audio UI + buy decline SFX via a transparent guard ONLY when a buy button is disabled.
 
 import Engine from '../engine.js';
 import { Audio } from '../audio.js';
@@ -11,18 +11,167 @@ function el(tag, css, html){
   return n;
 }
 
-// --- universal click SFX (with ability override) ---
+/* ─────────────────────────────────────────────────────────────
+   BUY BUTTON HELPERS (guard only on disabled)
+----------------------------------------------------------------*/
+
+const GUARD_CLASS = 'buy-decline-guard';
+
+function isBuy(btn){
+  return btn?.dataset?.intent === 'buy' || btn?.dataset?.declineOnDisabled === '1';
+}
+function looksLikeBuy(btn){
+  if (!(btn instanceof HTMLElement)) return false;
+  if (btn.tagName !== 'BUTTON') return false;
+  const id = btn.dataset?.id || '';
+  const txt = (btn.textContent || '').trim();
+  return (
+    btn.classList.contains('hud-upgrade-btn') ||
+    btn.hasAttribute('data-upgrade') ||
+    btn.hasAttribute('data-upgrade-id') ||
+    id.startsWith('upgrade:') ||
+    id.startsWith('ability:') ||
+    /(^|\b)(buy|upgrade|\+1|\blevel\b)/i.test(txt)
+  );
+}
+
+function isVisuallyDisabled(btn){
+  return (
+    btn.disabled ||
+    btn.getAttribute('aria-disabled') === 'true' ||
+    btn.dataset.disabled === '1' ||
+    btn.classList.contains('disabled') ||
+    btn.classList.contains('locked') ||
+    btn.classList.contains('unaffordable')
+  );
+}
+
+function ensureDeclineGuard(btn){
+  if (!(btn instanceof HTMLElement)) return;
+  // remove if not disabled
+  if (!isVisuallyDisabled(btn)) { removeDeclineGuard(btn); return; }
+
+  // already has a guard?
+  if (btn.querySelector(`.${GUARD_CLASS}`)) return;
+
+  // make sure button can host absolute overlay
+  const prevPos = getComputedStyle(btn).position;
+  if (prevPos === 'static') btn.style.position = 'relative';
+
+  const guard = el('div', `
+    position:absolute; inset:0;
+    pointer-events:auto;
+    background:transparent; z-index:2;`, '');
+  guard.className = GUARD_CLASS;
+
+  guard.addEventListener('pointerdown', (e) => {
+    // quick decline ping
+    if (!e._sfxPlayed) {
+      Audio.play('ui/purchase/decline', { group: 'sfx' });
+      e._sfxPlayed = true;
+    }
+    // block click from reaching the button while disabled
+    e.preventDefault();
+    e.stopPropagation();
+  }, { capture: true });
+
+  guard.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, { capture: true });
+
+  btn.appendChild(guard);
+}
+
+function removeDeclineGuard(btn){
+  const g = btn.querySelector?.(`.${GUARD_CLASS}`);
+  if (g) g.remove();
+}
+
+// Tag likely buy buttons once (so we don't need to change HUD markup)
+function scanAndTag(root){
+  const consider = [];
+  if (root.matches?.('button')) consider.push(root);
+  root.querySelectorAll?.('button').forEach(b => consider.push(b));
+
+  for (const btn of consider) {
+    if (!isBuy(btn) && looksLikeBuy(btn)) {
+      btn.dataset.intent = 'buy';
+    }
+    if (isBuy(btn)) {
+      // add/remove guard depending on current disabled look
+      if (isVisuallyDisabled(btn)) ensureDeclineGuard(btn);
+      else removeDeclineGuard(btn);
+    }
+  }
+}
+
+// Keep guards in sync with DOM changes
+let __buyObserverStarted = false;
+function startBuyObserver(){
+  if (__buyObserverStarted) return;
+  __buyObserverStarted = true;
+
+  const obs = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      // new nodes
+      m.addedNodes?.forEach((node) => {
+        if (node instanceof HTMLElement) scanAndTag(node);
+      });
+      // attribute flips (e.g. disabled <-> enabled)
+      if (m.type === 'attributes' && m.target instanceof HTMLButtonElement) {
+        const btn = m.target;
+        if (!isBuy(btn) && looksLikeBuy(btn)) btn.dataset.intent = 'buy';
+        if (isBuy(btn)) {
+          if (isVisuallyDisabled(btn)) ensureDeclineGuard(btn);
+          else removeDeclineGuard(btn);
+        }
+      }
+    }
+  });
+
+  obs.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: [
+      'disabled', 'aria-disabled', 'data-disabled', 'data-intent',
+      'data-id', 'data-upgrade', 'data-upgrade-id', 'class'
+    ]
+  });
+
+  // initial pass
+  scanAndTag(document);
+
+  // tiny safety poll — catches cases where UI toggles via JS property
+  // without triggering attribute/class mutations immediately.
+  setInterval(() => {
+    document.querySelectorAll('button[data-intent="buy"]').forEach((btn) => {
+      if (isVisuallyDisabled(btn)) ensureDeclineGuard(btn);
+      else removeDeclineGuard(btn);
+    });
+  }, 250);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   UNIVERSAL CLICK + SWITCH SFX (non-buy)
+----------------------------------------------------------------*/
 function attachClickSfx(root, { abilitySelector = '[data-ability], .ability-btn' } = {}) {
   root.addEventListener('click', (e) => {
     if (e._sfxPlayed) return;
     const btn = e.target.closest('button,[role="button"]');
     if (!btn || !root.contains(btn)) return;
     if (btn.dataset.noSfx === '1') return;
-    const isAbility = btn.matches(abilitySelector);
-    Audio.play(isAbility ? 'ui/ability' : 'ui/click');
+
+    // NEW: skip generic click sound for buy buttons
+    if (isBuy(btn)) return;
+
+    const isAbilityBtn = btn.matches(abilitySelector);
+    Audio.play(isAbilityBtn ? 'ui/ability' : 'ui/click');
     e._sfxPlayed = true;
   });
 }
+
 function attachChangeSfx(root) {
   root.addEventListener('change', (e) => {
     const input = e.target?.closest('input[type="checkbox"], input[type="radio"]');
@@ -31,15 +180,23 @@ function attachChangeSfx(root) {
     Audio.play(input.dataset.sfx || 'ui/switch');
   });
 }
+
 export function installGlobalUiClickSfx() {
   if (window.__uiClickSfxInstalled) return;
   window.__uiClickSfxInstalled = true;
+
   attachClickSfx(document.body);
   attachChangeSfx(document.body);
-  ensureAudioFloatingButton(); // make sure the audio button exists globally
+
+  // buy guard plumbing
+  startBuyObserver();
+
+  ensureAudioFloatingButton();
 }
 
-// ---------- floating audio settings ----------
+/* ─────────────────────────────────────────────────────────────
+   FLOATING AUDIO SETTINGS
+----------------------------------------------------------------*/
 function ensureAudioFloatingButton(){
   if (document.getElementById('audio-btn')) return;
 
@@ -84,14 +241,12 @@ function ensureAudioFloatingButton(){
   document.body.appendChild(btn);
   document.body.appendChild(panel);
 
-  // init slider values
   const mus = panel.querySelector('#vol-music');
   const sfx = panel.querySelector('#vol-sfx');
   const musVal = panel.querySelector('#vol-music-val');
   const sfxVal = panel.querySelector('#vol-sfx-val');
   const mute = panel.querySelector('#mute-all');
 
-  // read from current state
   mus.value = String(_getGroup('music'));
   sfx.value = String(_getGroup('sfx'));
   musVal.textContent = Math.round(_getGroup('music')*100) + '%';
@@ -100,7 +255,7 @@ function ensureAudioFloatingButton(){
 
   mus.addEventListener('input', () => {
     Audio.setGroupVolume('music', Number(mus.value));
-    Audio.setMusicVolume(Number(mus.value)); // optional: tie music track base to slider
+    Audio.setMusicVolume(Number(mus.value));
     musVal.textContent = Math.round(Number(mus.value)*100) + '%';
     Audio.play('ui/switch', { throttleMs: 120 });
   });
@@ -114,8 +269,9 @@ function ensureAudioFloatingButton(){
     else Audio.setMasterVolume(0.8);
   });
 
-  // click-away closes the panel
   document.addEventListener('click', (e) => {
+    const panel = document.getElementById('audio-panel');
+    if (!panel) return;
     if (!panel.contains(e.target) && e.target !== btn) panel.style.display = 'none';
   }, true);
 
@@ -123,7 +279,9 @@ function ensureAudioFloatingButton(){
   function _getMaster(){ try { return _state?.master ?? 0.8; } catch { return 0.8; } }
 }
 
-// ---------- HUD "☰ Menu" button ----------
+/* ─────────────────────────────────────────────────────────────
+   HUD "☰ Menu" button
+----------------------------------------------------------------*/
 export function ensureHudMenuButton(openCb){
   if (document.getElementById('hud-menu-btn')) return;
   const btn = el('button', `
@@ -141,14 +299,18 @@ export function removeHudMenuButton(){
   document.getElementById('hud-menu-btn')?.remove();
 }
 
-// ---------- Pre-game main menu ----------
-export function initMenuUI({ onPlay, onBuyPermanent } = {}) {
-  // Stop gameplay music and start menu music (no fades)
+/* ─────────────────────────────────────────────────────────────
+   Pre-game main menu
+----------------------------------------------------------------*/
+export function initMenuUI({ onPlay, onBuyPermanent, playMenuMusic = false } = {}) {
+  document.querySelectorAll('#menu-root').forEach(n => n.remove());
+
   Audio.stopMusic();
   if (!Audio.isReady()) Audio.init();
-  Audio.playMusic('music/menu', { volume: 0.5, loop: true });
+  if (playMenuMusic) {
+    Audio.playMusic('music/menu', { volume: 0.5, loop: true });
+  }
 
-  // Root overlay
   const root = el('div', `
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     pointer-events:auto; font-family:system-ui,Segoe UI,Roboto,sans-serif; color:#fff; z-index:1000;`);
@@ -171,7 +333,6 @@ export function initMenuUI({ onPlay, onBuyPermanent } = {}) {
   play.onmouseup   = () => (play.style.transform = 'translateY(0)');
   play.onclick = () => {
     Audio.init();
-    // switch menu -> gameplay music
     Audio.stopMusic();
     Audio.playMusic('music/wave', { volume: 0.55, loop: true });
     root.remove();
@@ -197,7 +358,6 @@ export function initMenuUI({ onPlay, onBuyPermanent } = {}) {
   bottom.append(btnAbilities, btnUpgrades, btnHardReset);
   root.appendChild(bottom);
 
-  // Panel
   const panel = el('div', `
     position:absolute; left:50%; bottom:70px; transform:translateX(-50%);
     width:min(760px, 92vw); max-height:50vh; overflow:auto; padding:14px;
@@ -209,23 +369,30 @@ export function initMenuUI({ onPlay, onBuyPermanent } = {}) {
     const list = (snap.abilities || []).slice().sort((a,b)=> (a.title||'').localeCompare(b.title||''));
     panel.innerHTML = '<div style="font-weight:700;margin-bottom:8px">Abilities</div>';
     for (const a of list) {
+      const price = a.permPrice ?? (5 + Math.floor(Math.pow(1.35, (a.permLevel|0))));
       const row = el('div',
         'display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,.08)');
-      const price = a.permPrice ?? (5 + Math.floor(Math.pow(1.35, (a.permLevel|0))));
       row.innerHTML = `
         <div>
           <div style="font-weight:700">${a.title}</div>
           <div style="opacity:.8; font-size:12px">${a.hint||''} · CD: ${Number(a.cd||0).toFixed(1)}s</div>
           <div style="opacity:.85; font-size:12px">Permanent Level: ${a.permLevel|0}</div>
         </div>
-        <button data-id="ability:${a.id}" style="padding:8px 12px; border:none; border-radius:10px; background:#7c3aed; color:#fff; cursor:pointer">
+        <button
+          data-intent="buy"
+          data-id="ability:${a.id}"
+          style="padding:8px 12px; border:none; border-radius:10px; background:#7c3aed; color:#fff; cursor:pointer">
           Buy +1 (${price} ⚜)
         </button>
       `;
       panel.appendChild(row);
     }
     panel.querySelectorAll('button[data-id]').forEach(b=>{
-      b.onclick = () => { onBuyPermanent?.(b.dataset.id); refreshTop(); renderAbilities(); };
+      b.onclick = () => {
+        const ok = onBuyPermanent?.(b.dataset.id);
+        Audio.play(ok ? 'ui/purchase/confirm' : 'ui/purchase/decline', { group: 'sfx' });
+        refreshTop(); renderAbilities();
+      };
     });
   }
 
@@ -241,14 +408,21 @@ export function initMenuUI({ onPlay, onBuyPermanent } = {}) {
           <div style="font-weight:700">${m.title}</div>
           <div style="opacity:.85;font-size:12px">Permanent Level: ${m.level|0}</div>
         </div>
-        <button data-id="${m.id}" style="padding:8px 12px; border:none; border-radius:10px; background:#7c3aed; color:#fff; cursor:pointer">
+        <button
+          data-intent="buy"
+          data-id="${m.id}"
+          style="padding:8px 12px; border:none; border-radius:10px; background:#7c3aed; color:#fff; cursor:pointer">
           Buy +1 (${m.price} ⚜)
         </button>
       `;
       panel.appendChild(row);
     }
     panel.querySelectorAll('button[data-id]').forEach(b=>{
-      b.onclick = () => { onBuyPermanent?.(b.dataset.id); refreshTop(); renderUpgrades(); };
+      b.onclick = () => {
+        const ok = onBuyPermanent?.(b.dataset.id);
+        Audio.play(ok ? 'ui/purchase/confirm' : 'ui/purchase/decline', { group: 'sfx' });
+        refreshTop(); renderUpgrades();
+      };
     });
   }
 
@@ -271,6 +445,9 @@ export function initMenuUI({ onPlay, onBuyPermanent } = {}) {
   refreshTop();
   ensureAudioFloatingButton();
 
+  // initial scan (in case the HUD is already present)
+  scanAndTag(document);
+
   return () => {
     root.remove();
     unsub && unsub();
@@ -278,7 +455,9 @@ export function initMenuUI({ onPlay, onBuyPermanent } = {}) {
   };
 }
 
-// ---------- Pause menu ----------
+/* ─────────────────────────────────────────────────────────────
+   Pause menu
+----------------------------------------------------------------*/
 export function openPauseMenu({ onResume, onSurrender, onMainMenu } = {}) {
   if (document.getElementById('pause-root')) return;
 
@@ -315,7 +494,9 @@ export function openPauseMenu({ onResume, onSurrender, onMainMenu } = {}) {
   ensureAudioFloatingButton();
 }
 
-// ---------- Defeat menu ----------
+/* ─────────────────────────────────────────────────────────────
+   Defeat menu
+----------------------------------------------------------------*/
 export function showDefeatMenu({ wave, prestige, onTryAgain, onMainMenu } = {}) {
   if (document.getElementById('defeat-root')) return;
 
@@ -351,4 +532,104 @@ export function showDefeatMenu({ wave, prestige, onTryAgain, onMainMenu } = {}) 
 
   document.body.appendChild(root);
   ensureAudioFloatingButton();
+}
+
+/* Optional: invisible guard style + faint disabled cue */
+const __styleId = 'buy-guard-style';
+if (!document.getElementById(__styleId)) {
+  const s = document.createElement('style');
+  s.id = __styleId;
+  s.textContent = `
+    .${GUARD_CLASS} { /* transparent overlay that eats clicks while disabled */ }
+    .hud-upgrade-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  `;
+  document.head.appendChild(s);
+}
+
+
+
+
+/* ─────────────────────────────────────────────────────────────
+   GAMEPLAY HUD BUY BRIDGE
+   - Catches clicks on HUD upgrade buttons and calls engine.actions.buy()
+   - Plays confirm/decline SFX depending on success
+----------------------------------------------------------------*/
+function isActuallyDisabled(btn) {
+  return (
+    btn.disabled ||
+    btn.getAttribute('aria-disabled') === 'true' ||
+    btn.dataset.disabled === '1' ||
+    btn.classList.contains('disabled') ||
+    btn.classList.contains('locked') ||
+    btn.classList.contains('unaffordable')
+  );
+}
+
+// ---- Gameplay HUD buy bridge (exported) ----
+// Catches clicks on gameplay upgrade buttons, calls engine.actions.buy(),
+// and plays confirm/decline SFX. Safe to call multiple times.
+export function installGameplayBuyBridge() {
+  if (window.__hudBuyBridgeInstalled) return;
+  window.__hudBuyBridgeInstalled = true;
+
+  function isActuallyDisabled(btn) {
+    return (
+      btn.disabled ||
+      btn.getAttribute('aria-disabled') === 'true' ||
+      btn.dataset.disabled === '1' ||
+      btn.classList.contains('disabled') ||
+      btn.classList.contains('locked') ||
+      btn.classList.contains('unaffordable')
+    );
+  }
+
+  document.addEventListener(
+    'click',
+    (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+
+      // Identify HUD buy buttons (gameplay)
+      const isHudBuy =
+        btn.classList.contains('hud-upgrade-btn') ||
+        btn.hasAttribute('data-upgrade') ||
+        btn.hasAttribute('data-upgrade-id') ||
+        btn.hasAttribute('data-upgrade-type') ||
+        (btn.dataset.id || '').startsWith('upgrade:');
+
+      if (!isHudBuy) return;
+
+      // If visually disabled -> decline ping and block
+      if (isActuallyDisabled(btn)) {
+        Audio.play('ui/purchase/decline', { group: 'sfx' });
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // Extract upgrade "type" expected by engine.actions.buy(type)
+      let type =
+        btn.dataset.upgradeType ||
+        btn.dataset.upgradeId ||
+        btn.dataset.upgrade ||
+        '';
+
+      if (!type && btn.dataset.id && btn.dataset.id.startsWith('upgrade:')) {
+        type = btn.dataset.id.slice('upgrade:'.length); // e.g. "upgrade:dmg" -> "dmg"
+      }
+
+      if (!type) return; // nothing to do
+
+      // Try to buy
+      const ok = window.engine?.actions?.buy?.(type);
+
+      // SFX based on result
+      Audio.play(ok ? 'ui/purchase/confirm' : 'ui/purchase/decline', { group: 'sfx' });
+
+      // If double handlers cause duplicate actions, uncomment:
+      // e.preventDefault();
+      // e.stopImmediatePropagation();
+    },
+    true
+  );
 }

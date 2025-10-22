@@ -20,8 +20,11 @@ import {
   openPauseMenu,
   showDefeatMenu,
   installGlobalUiClickSfx,
+  installGameplayBuyBridge,
 } from './ui/overlay.js';
 installGlobalUiClickSfx();
+installGameplayBuyBridge();
+
 // Expose live game state to Engine
 Engine.setStateAccessor(() => ({ core, enemies, effects, projectiles }));
 
@@ -70,6 +73,8 @@ Audio.load({
   'ui/click':     new URL('../assets/sfx/ui_click1.mp3', import.meta.url).href,
   'ui/switch':   new URL('../assets/sfx/switch.mp3', import.meta.url).href,
   'proj/throw':    new URL('../assets/sfx/fireball_throw.wav', import.meta.url).href,
+  'ui/purchase/confirm': new URL('../assets/sfx/confirmed.wav', import.meta.url).href,
+  'ui/purchase/decline': new URL('../assets/sfx/declined.wav',  import.meta.url).href,
 });
 
 Audio.loadMusic({
@@ -503,7 +508,7 @@ function loop(now){
           removeHudMenuButton();
           resetGame();
           S.paused = true;
-          initMenuUI({ onPlay: startFromMenu, onBuyPermanent: buyPermanent });
+          initMenuUI({ onPlay: startFromMenu, onBuyPermanent: buyPermanent, playMenuMusic: true });
         }
       }));
     },
@@ -764,20 +769,33 @@ function hardReset() {
 
 function buyUpgrade(type) {
   const def = Engine.registry?.upgrades?.[type];
-  if (!def) return;
+  if (!def) return false;                                    // <- explicit
+
   const level = upgrades[type] | 0;
-  const c = (typeof def.cost === 'function') ? def.cost(level) : 0;
-  if (S.gold < c) return;
-  S.gold = S.gold - c;
+  const cost =
+    typeof def.cost === 'function'
+      ? Math.max(0, def.cost(level))
+      : Math.max(0, Number(def.cost) || 0);
+
+  if ((S.gold | 0) < cost) return false;                     // <- explicit
+
+  S.gold -= cost;
   upgrades[type] = level + 1;
+
   core.applyUpgrades();
   if (typeof def.apply === 'function') def.apply(core, upgrades[type]);
   Engine.applyPermToCore(core);
-  saveGame(); notifySubscribers(buildSnapshot());
+
+  saveGame();
+  notifySubscribers(buildSnapshot());
+  Engine.emit?.('upgrade:buy', { type, level: upgrades[type], cost });
+
+  return true;                                               // <- the key fix
 }
+
 function buyPermanent(rowId) {
   const m = String(rowId).split(':');
-  if (m.length !== 2) return false;
+  if (m.length !== 2) { Audio.play('ui/purchase/decline', { group:'sfx' }); return false; }
   const kind = m[0], id = m[1];
 
   const levels = Engine.getPermLevels();
@@ -785,7 +803,11 @@ function buyPermanent(rowId) {
 
   const cur = levels[key]|0;
   const price = 5 + Math.floor(Math.pow(1.35, cur));
-  if ((S.prestige|0) < price) return false;
+
+  if ((S.prestige|0) < price) {
+    Audio.play('ui/purchase/decline', { group:'sfx' });
+    return false;
+  }
 
   S.prestige -= price;
   levels[key] = cur + 1;
@@ -794,15 +816,32 @@ function buyPermanent(rowId) {
   core.applyUpgrades();
   Engine.applyPermToCore(core);
 
+  Audio.play('ui/purchase/confirm', { group:'sfx' });
   saveGame(); notifySubscribers(buildSnapshot());
   Engine.emit('meta:buy', { id: key, level: levels[key] });
   return true;
 }
 function castAbility(which) {
   const ok = Engine.castAbility(which);
-  if (ok) { saveGame(); notifySubscribers(buildSnapshot()); }
+  if (ok) {
+    // NEW: look up the ability's own SFX key from the registry
+    const meta = Engine.registry?.abilities?.[which];
+    const sfxKey =
+      meta?.sfx?.cast ||            // preferred
+      meta?.sfxCast ||              // legacy/back-compat if you ever used this name
+      null;
+
+    if (sfxKey) {
+      // play via SFX group; no throttle so quick taps still play
+      Audio.play(sfxKey, { group: 'sfx' });
+    }
+
+    saveGame();
+    notifySubscribers(buildSnapshot());
+  }
   return ok;
 }
+
 function surrender() {
   if (S.defeated) return;
   core.hp = 0;

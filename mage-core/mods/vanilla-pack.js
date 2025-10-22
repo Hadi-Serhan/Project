@@ -1,7 +1,12 @@
 // mage-core/mods/vanilla-pack.js
 import Engine from '../src/engine.js';
+import { Audio } from '../src/audio.js';
 import { core, enemies, effects, dist, clamp, ctx } from '../src/state.js';
 
+Audio.load({
+  'ability/nova/cast': new URL('../assets/sfx/fire_ring.wav', import.meta.url).href,
+  'ability/frost/cast': new URL('../assets/sfx/snow_storm.wav', import.meta.url).href,
+});
 // ----------- Nova fire ring (animated) -----------
 function makeNovaFireRing(x, y, {
   radius = 120,
@@ -109,6 +114,7 @@ Engine.registerAbility('nova', {
   cdLeft: 0,
   damageBase: 35,
   damageCoef: 0.6,
+  sfx: {cast: 'ability/nova/cast'},
   cast() {
     if (this.cdLeft > 0 || this.enabled === false) return false;
 
@@ -155,6 +161,7 @@ const frostDef = {
   radius: 140,
   cd: 12,
   cdLeft: 0,
+  sfx: {cast: 'ability/frost/cast'},
 
   // public state for visuals
   zones: [],            // [{ x, y, r, until }]
@@ -221,6 +228,6 @@ const removeReset = Engine.addResetHook(() => {
 // ================= Optional hotkeys (Q/W) =================
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
-  if (k === 'q') Engine.castAbility?.('nova');
-  if (k === 'w') Engine.castAbility?.('frost');
+  if (k === 'q') window.engine?.actions?.cast?.('nova');
+  if (k === 'w') window.engine?.actions?.cast?.('frost');
 });

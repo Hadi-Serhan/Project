@@ -136,19 +136,19 @@ export const Audio = {
   setGroupVolume(group, value) {
     _state.groups[group] = Math.max(0, Math.min(1, Number(value) || 0));
     // keep music decks in sync too (handled below)
-    _applyMusicVolumes();
+    _applyMusicVolume();
   },
 
   /** Set master volume [0..1] */
   setMasterVolume(value) {
     _state.master = Math.max(0, Math.min(1, Number(value) || 0));
-    _applyMusicVolumes();
+    _applyMusicVolume();
   },
 
   /** Quick mute/unmute */
   mute(isMuted = true) {
     _state.master = isMuted ? 0 : 0.8;
-    _applyMusicVolumes();
+    _applyMusicVolume();
   },
 
   isReady() { return _state.ready; }
@@ -220,6 +220,7 @@ Audio.playMusic = function(key, { loop = true, volume = 0.6 } = {}) {
 Audio.stopMusic = function() {
   const el = _music.el;
   _music.key = null;
+  _music.hiddenPaused = false;
   if (!el) return;
   try { el.pause(); } catch {}
   try { el.src = ''; } catch {}
@@ -247,15 +248,38 @@ Audio.setGroupVolume = function(group, v) {
 };
 
 // pause on tab hide, resume on show
-document.addEventListener('visibilitychange', () => {
-  if (!_music.wantPauseOnHide || !_music.el) return;
-  if (document.hidden) {
-    _music.hiddenPaused = !_music.el.paused;
-    try { _music.el.pause(); } catch {}
-  } else if (_music.hiddenPaused) {
-    _music.el.play?.().catch(()=>{});
+if (!window.__audioHooksInstalled) {
+  window.__audioHooksInstalled = true;
+
+  document.addEventListener('visibilitychange', () => {
+    if (!_music.wantPauseOnHide || !_music.el) return;
+
+    if (document.hidden) {
+      // pause only if we were playing
+      _music.hiddenPaused = !_music.el.paused;
+      if (_music.hiddenPaused) {
+        try { _music.el.pause(); } catch {}
+      }
+    }
+    // on visible: do nothing (wait for real focus)
+  });
+
+  window.addEventListener('focus', () => {
+    if (!_music.wantPauseOnHide || !_music.el) return;
+    if (!_music.hiddenPaused) return;     // only resume if we paused due to hide
+    if (document.hidden) return;          // paranoid guard
+    _music.el.play?.().catch(() => {});
     _music.hiddenPaused = false;
-  }
+  });
+}
+// resume only when the page actually regains focus
+window.addEventListener('focus', () => {
+  if (!_music.wantPauseOnHide || !_music.el) return;
+  if (!_music.hiddenPaused) return;          // we weren’t paused by hide
+  if (document.hidden) return;               // paranoid guard
+
+  _music.el.play?.().catch(() => {});
+  _music.hiddenPaused = false;
 });
 
 // stop on navigate away (same tab)
@@ -279,4 +303,8 @@ export function installSoundHooks(Engine, helpers = {}) {
     const p = enemy?.pos || { x: helpers.cx?.(), y: helpers.cy?.() };
     Audio.play('hit/enemy', { x: p.x, y: p.y, center: helpers, group: 'sfx', throttleMs: 30 });
   });
+  Engine.on?.('upgrade:buy', () => {
+  Audio.play('ui/purchase/confirm', { group: 'sfx' });
+});
+
 }
