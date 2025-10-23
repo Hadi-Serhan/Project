@@ -313,5 +313,3 @@ core.critChance = Math.min(0.8, (core.critChance||0) + 0.05*lvl);
 
 ---
 
-
-##thanks!
