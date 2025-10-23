@@ -1,4 +1,4 @@
-// mage-core/src/ui/overlay.js
+// Firey/src/ui/overlay.js
 // Overlays + audio UI + buy decline SFX via a transparent guard ONLY when a buy button is disabled.
 
 import Engine from '../engine.js';

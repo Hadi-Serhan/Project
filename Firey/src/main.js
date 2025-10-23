@@ -101,7 +101,7 @@ Engine.setGoldSink((amt) => { S.gold = Math.max(0, (S.gold|0) + (amt|0)); });
 Engine.setCoreMutator((fn) => { fn(core); });
 
 // -------------------- Save / Load --------------------
-const SAVE_KEY = 'mage-core:v1';
+const SAVE_KEY = 'Firey:v1';
 function serialize() {
   return {
     wave: S.wave, waveRunning: false, defeated: false,
@@ -755,7 +755,7 @@ function resetGame() {
 
 // --- Hard reset: wipe save + permanents + run state ---
 function hardReset() {
-  try { localStorage.removeItem('mage-core:v1'); } catch {}
+  try { localStorage.removeItem('Firey:v1'); } catch {}
   stateHardReset();
   setWaveStatus('Progress wiped');
   notifySubscribers(buildSnapshot());

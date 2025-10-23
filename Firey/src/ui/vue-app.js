@@ -1,4 +1,4 @@
-// mage-core/src/ui/vue-app.js
+// Firey/src/ui/vue-app.js
 import Engine from '../engine.js';
 import { cost } from '../state.js';
 const { createApp, reactive, computed, onMounted, onBeforeUnmount, toRefs } = Vue;

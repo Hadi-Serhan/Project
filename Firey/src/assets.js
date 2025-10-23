@@ -1,4 +1,4 @@
-// mage-core/src/assets.js
+// Firey/src/assets.js
 import Engine from './engine.js';
 
 const cache = {};     // key -> Image | Image[]
@@ -8,8 +8,8 @@ let ready = false;
 function getAssetUrl(path) {
   const baseUrl =
     window.location.hostname === 'hadi-serhan.github.io'
-      ? '/Project/mage-core/'
-      : '/mage-core/';
+      ? '/Project/Firey/'
+      : '/Firey/';
   return baseUrl + path.replace(/^\/+/, '');
 }
 

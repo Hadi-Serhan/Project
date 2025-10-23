@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Mage Core</title>
+  <title> Firey </title>
 
   <link rel="stylesheet" href="./style.css">
   <link rel="icon" href="data:,"> 
@@ -135,19 +135,19 @@
 <!-- Bootstrap: load mods first, then the game and UI -->
 <script type="module">
   // Ensure Engine exists globally before mods run
-  import Engine from './mage-core/src/engine.js';
+  import Engine from './Firey/src/engine.js';
   window.Engine = Engine;
   window.engine = {};
 
-  // 1) Load all mods (reads ./mage-core/mods/mod-list.json)
-  import { loadAllMods } from './mage-core/src/mod-loader.js';
+  // 1) Load all mods (reads ./Firey/mods/mod-list.json)
+  import { loadAllMods } from './Firey/src/mod-loader.js';
   await loadAllMods();
 
   // 2) Boot the engine/game
-  await import('./mage-core/src/main.js');
+  await import('./Firey/src/main.js');
 
   // 3) Mount the Vue UI (dynamic lists; no hardcoded abilities/upgrades)
-  await import('./mage-core/src/ui/vue-app.js');
+  await import('./Firey/src/ui/vue-app.js');
 </script>
 </body>
 </html>

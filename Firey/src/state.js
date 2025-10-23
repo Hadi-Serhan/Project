@@ -1,4 +1,4 @@
-// mage-core/src/state.js
+// Firey/src/state.js
 import Engine from './engine.js';
 
 // ===== Canvas / basics =====
@@ -384,7 +384,7 @@ window.__dumpCore = () => ({
 });
 console.log('[state] __dumpCore() ready — run this in DevTools to inspect.');
 
-// Expose reset actions (harmless if also wired from main.js)
+// Expose reset actions
 window.engine = window.engine || {};
 window.engine.actions = Object.assign(window.engine.actions || {}, {
   reset: resetRun,

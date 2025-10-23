@@ -1,4 +1,4 @@
-// mage-core/src/config.js
+// Firey/src/config.js
 
 // Get the base URL for assets based on the current environment
 export function getBaseUrl() {

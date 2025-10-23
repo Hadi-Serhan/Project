@@ -1,4 +1,4 @@
-// mage-core/src/content.js
+// Firey/src/content.js
 // Enemy types + simple wave recipe. Easy to tweak or later move to JSON.
 import Engine from './engine.js';
 

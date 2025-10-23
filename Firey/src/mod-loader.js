@@ -1,4 +1,4 @@
-// mage-core/src/mod-loader.js
+// Firey/src/mod-loader.js
 // Ensure Engine + ability bridge before mods (do this once)
 if (!window.__mc_bridge_ready) {
   await import('./engine.js');

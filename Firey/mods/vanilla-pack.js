@@ -1,4 +1,4 @@
-// mage-core/mods/vanilla-pack.js
+// Firey/mods/vanilla-pack.js
 import Engine from '../src/engine.js';
 import { Audio } from '../src/audio.js';
 import { core, enemies, effects, dist, clamp, ctx, Stats, CoreSchema } from '../src/state.js';

@@ -1,4 +1,4 @@
-// mage-core/src/engine.js
+// Firey/src/engine.js
 
 // Event Bus
 const listeners = new Map(); // event -> Set<fn>
