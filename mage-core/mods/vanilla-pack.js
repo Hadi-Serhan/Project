@@ -4,9 +4,7 @@ import { Audio } from '../src/audio.js';
 import { core, enemies, effects, dist, clamp, ctx, Stats, CoreSchema } from '../src/state.js';
 import { utils as AbilityUtils } from '../src/abilities.js'; // visuals (makeRingEffect)
 
-/* ─────────────────────────────────────────────────────────────
-   AUDIO
-----------------------------------------------------------------*/
+// Audio
 Audio.load({
   'ability/nova/cast':  new URL('../assets/sfx/fire_ring.wav',  import.meta.url).href,
   'ability/frost/cast': new URL('../assets/sfx/snow_storm.wav', import.meta.url).href,
@@ -14,10 +12,10 @@ Audio.load({
   'ability/drive/cast': new URL('../assets/sfx/overdrive.wav',  import.meta.url).href,
 });
 
-/* ─────────────────────────────────────────────────────────────
-   STATS (for UI readouts) — labels + formatters
-   These keys are referenced from each upgrade via readoutKeys.
-----------------------------------------------------------------*/
+
+  //STATS (for UI readouts) — labels + formatters
+  //These keys are referenced from each upgrade via readoutKeys.
+
 const f2 = (x) => (typeof x === 'number' ? Number(x).toFixed(2) : x);
 
 Stats.register('damage', {
@@ -63,9 +61,9 @@ Stats.register('aura', {
 });
 
 /* ─────────────────────────────────────────────────────────────
-   CORE BASE DEFAULTS (schema-driven)
+   CORE BASE DEFAULTS
    - We can either extend the schema or set base values via modifyCore.
-   - Here we stick to your values and force a recompute so UI readouts are correct.
+   - Here we stick to our values and force a recompute so UI readouts are correct.
 ----------------------------------------------------------------*/
 Engine.modifyCore((c) => {
   // These are *base* fields — they’ll be copied to live fields by CoreSchema reset.
@@ -182,7 +180,7 @@ Engine.registerUpgrade('range', {
 });
 
 /* ─────────────────────────────────────────────────────────────
-   PASSIVE AURA TICK (schema-friendly; uses core fields)
+   PASSIVE AURA TICK 
 ----------------------------------------------------------------*/
 (function(){
   let lastT = performance.now()/1000;
@@ -272,7 +270,7 @@ const frostDef = {
 };
 Engine.registerAbility('frost', frostDef);
 
-// Shockwave (E) — stronger nova with big knockback
+// Shockwave (E) —
 Engine.registerAbility('shockwave', {
   title: 'Shockwave', hint: 'E', enabled: true,
   radius: 150, cd: 12, cdLeft: 0,
@@ -304,9 +302,16 @@ Engine.registerAbility('overdrive', {
   cast() {
     if (this.cdLeft > 0 || this.enabled === false) return false;
     const now = performance.now()/1000;
-    core._driveUntil  = now + this.duration;
-    core._driveDMul   = this.dmgMul;
-    core._driveRofMul = this.rofMul;
+
+    // Snapshot current upgraded/permanent-adjusted stats
+    core._driveUntil   = now + this.duration;
+    core._driveDMul    = this.dmgMul;
+    core._driveRofMul  = this.rofMul;
+    core._driveBase = {
+      damage:   Number(core.damage   ?? core.baseDamage   ?? 0),
+      fireRate: Number(core.fireRate ?? core.baseFireRate ?? 0),
+    };
+
     return true;
   }
 });
@@ -331,7 +336,7 @@ Engine.addEnemyModifier((enemy) => {
 // Draw frost overlay
 Engine.addOverlayDrawer(() => { const frost = Engine.registry?.abilities?.frost; frost?.drawOverlay?.(); });
 
-// Overdrive ticking (non-destructive; recompute from base + upgrades + perm)
+// Overdrive tickin
 (function(){
   let lastT = performance.now()/1000;
   Engine.addOverlayDrawer(() => {
@@ -339,14 +344,25 @@ Engine.addOverlayDrawer(() => { const frost = Engine.registry?.abilities?.frost;
     const dt = Math.min(0.05, Math.max(0, now - lastT));
     lastT = now;
 
-    if (core._driveUntil > now) {
-      // Recompute from base to avoid compounding (use registry upgrade levels if you track them in Engine.state)
-      const lvlD = Engine.state?.upgrades?.dmg||0;
-      const lvlR = Engine.state?.upgrades?.rof||0;
-      const baseDmg = (core.baseDamage ?? 0) + 5 * lvlD;
-      const baseRof = (core.baseFireRate ?? 0) + 0.2 * lvlR;
-      core.damage   = Math.round(baseDmg * (core.perm?.dmgMul || 1) * (core._driveDMul||1));
-      core.fireRate = baseRof * (core.perm?.rofMul || 1) * (core._driveRofMul||1);
+    if (core._driveUntil && core._driveUntil > now && core._driveBase) {
+      const baseD = core._driveBase.damage;
+      const baseR = core._driveBase.fireRate;
+
+      // Never drop below the snapshot
+      const dmg = baseD * (core._driveDMul  || 1);
+      const rof = baseR * (core._driveRofMul|| 1);
+
+      core.damage   = Math.max(dmg, baseD);
+      core.fireRate = Math.max(rof, baseR);
+    } else if (core._driveUntil && core._driveUntil <= now) {
+      // Expired — clean up and let normal upgrade/permanent logic be authoritative again
+      delete core._driveUntil;
+      delete core._driveDMul;
+      delete core._driveRofMul;
+      delete core._driveBase;
+
+      // Recompute from schema + upgrades + permanents
+      try { core.applyUpgrades(); Engine.applyPermToCore(core); } catch {}
     }
   });
 })();
