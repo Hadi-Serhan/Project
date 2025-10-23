@@ -314,8 +314,4 @@ core.critChance = Math.min(0.8, (core.critChance||0) + 0.05*lvl);
 ---
 
 
-## License / Credits
-
-- Code & design: student project (MIT or class license)  
-- Assets: placeholder sprites/sounds in `/assets`  
-- Thanks!
+##thanks!
