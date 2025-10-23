@@ -4,7 +4,9 @@ import {
   gold, prestige, wave, waveRunning, defeated, waveStatus,
   setGold, setWave, setWaveRunning, setDefeatedFlag, setWaveStatus, setPrestige,
   subscribe, notifySubscribers,
-  paused, timeScale, autoStart, setPaused, setTimeScale, setAutoStart
+  paused, timeScale, autoStart, setPaused, setTimeScale, setAutoStart,
+  resetRun as stateResetRun,
+  hardReset as stateHardReset
 } from './state.js';
 
 import Engine from './engine.js';
@@ -123,9 +125,8 @@ function applySnapshot(snap) {
   S.timeScale = snap.timeScale ?? 1; S.autoStart = !!(snap.autoStart ?? false);
   core.hp = Math.min(core.hpMax, snap.coreHP ?? core.hpMax);
 
-  upgrades.dmg   = snap.upgrades?.dmg   ?? 0;
-  upgrades.rof   = snap.upgrades?.rof   ?? 0;
-  upgrades.range = snap.upgrades?.range ?? 0;
+  for (const k of Object.keys(upgrades)) delete upgrades[k];
+  for (const [k, v] of Object.entries(snap.upgrades || {})) upgrades[k] = v|0;
   core.applyUpgrades();
 
   Engine.setPermLevels(snap.perm || {});
@@ -743,39 +744,19 @@ function startWave() {
   setWaveStatus(packs.some(p => p.boss) ? 'Boss!' : 'Running…');
   for (const p of packs) spawnBatch(p.type, p.count, baseCadence * (p.cadenceMul || 1));
 }
+// --- Reset the current run (keeps prestige & permanents) ---
 function resetGame() {
-  enemies.length = 0; projectiles.length = 0; effects.length = 0;
-  spawners.length = 0;
-  S.wave = 0; S.waveRunning = false; S.defeated = false;
-  core.hp = core.hpMax; S.gold = 0;
-  upgrades.dmg = upgrades.rof = upgrades.range = 0;
-  core.applyUpgrades();
-  Engine.applyPermToCore(core);
-  Engine.runResetHooks();
-  setWaveStatus('No wave'); saveGame(); notifySubscribers(buildSnapshot());
+  stateResetRun();
+  setWaveStatus('No wave');
+  saveGame();
+  notifySubscribers(buildSnapshot());
 }
 
-// Hard reset: wipe save, prestige, permanent levels, gold upgrades, and run state
+
+// --- Hard reset: wipe save + permanents + run state ---
 function hardReset() {
   try { localStorage.removeItem('mage-core:v1'); } catch {}
-
-  enemies.length = 0; projectiles.length = 0; effects.length = 0;
-  if (typeof spawners !== 'undefined') spawners.length = 0;
-
-  S.wave = 0; S.waveRunning = false; S.defeated = false;
-  S.gold = 0; S.prestige = 0;
-  core.hp = core.hpMax;
-
-  upgrades.dmg = 0;
-  upgrades.rof = 0;
-  upgrades.range = 0;
-
-  Engine.setPermLevels({});
-
-  core.applyUpgrades();
-  Engine.applyPermToCore(core);
-  Engine.runResetHooks?.();
-
+  stateHardReset();
   setWaveStatus('Progress wiped');
   notifySubscribers(buildSnapshot());
 }

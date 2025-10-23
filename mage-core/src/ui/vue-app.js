@@ -4,14 +4,17 @@ import { cost } from '../state.js';
 const { createApp, reactive, computed, onMounted, onBeforeUnmount, toRefs } = Vue;
 
 // --- helpers ---
-function buildUpgradesList() {
+function buildUpgradesList(readouts, costsAll) {
   const reg = Engine.registry?.upgrades || {};
   const list = Object.entries(reg).map(([id, def]) => ({
     id,
     category: def.category || 'General',
     title: def.title || id,
     desc: def.desc || '',
-    cost: cost(id),
+    // prefer dynamic cost from snapshot if present, fallback to cost()
+    cost: (costsAll && Number.isFinite(costsAll[id])) ? costsAll[id] : cost(id),
+    // NEW: show modular, live readout from snapshot (computed in state.js)
+    readout: readouts?.[id] || '',
   }));
   list.sort((a,b) =>
     (a.category||'').localeCompare(b.category||'') ||
@@ -48,6 +51,10 @@ createApp({
       // snapshot fields
       wave: 0, coreHP: 0, gold: 0,
       costs: { dmg:0, rof:0, range:0 },
+      // NEW: dynamic map for all upgrade costs + modular readouts
+      costsAll: {},
+      readouts: {},
+
       cd: {}, waveStatus:'No wave', hasSave:false,
       lastSaved:null, lastSavedLabel:'—',
       paused:false, timeScale:1, autoStart:false,
@@ -75,7 +82,7 @@ createApp({
     );
 
     const refreshLists = () => {
-      state.upgradesList = buildUpgradesList();
+      state.upgradesList = buildUpgradesList(state.readouts, state.costsAll);
       const uCats = uniqueCats(state.upgradesList);
       state.upgradeTabs = ['All', ...uCats];
       if (!state.upgradeTabs.includes(state.selectedUpgradeTab)) state.selectedUpgradeTab = 'All';
@@ -95,6 +102,7 @@ createApp({
       }
       if (window.engine?.subscribe) {
         unsub = window.engine.subscribe((snap) => {
+          // bring in readouts & costsAll from state.js snapshot
           Object.assign(state, snap);
           state.lastSavedLabel = snap.lastSaved ? new Date(snap.lastSaved).toLocaleTimeString() : '—';
           refreshLists();

@@ -5,9 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Mage Core</title>
 
-    <link rel="stylesheet" href="./style.css">
-    <link rel="icon" href="data:,"> 
-    
+  <link rel="stylesheet" href="./style.css">
+  <link rel="icon" href="data:,"> 
 </head>
 <body>
 <div id="wrap">
@@ -68,61 +67,67 @@
       </div>
     </div>
 
-<!-- Upgrades -->
-<div class="card">
-  <h3>Upgrades</h3>
+    <!-- Upgrades -->
+    <div class="card">
+      <h3>Upgrades</h3>
 
-  <!-- Tabs -->
-  <div class="row wrap" style="gap:6px; margin-bottom:8px">
-    <button
-      v-for="tab in upgradeTabs" :key="tab"
-      class="btn"
-      :class="{ primary: tab === selectedUpgradeTab }"
-      @click="selectUpgradeTab(tab)">
-      {{ tab }}
-    </button>
-  </div>
+      <!-- Tabs -->
+      <div class="row wrap" style="gap:6px; margin-bottom:8px">
+        <button
+          v-for="tab in upgradeTabs" :key="tab"
+          class="btn"
+          :class="{ primary: tab === selectedUpgradeTab }"
+          @click="selectUpgradeTab(tab)">
+          {{ tab }}
+        </button>
+      </div>
 
-  <!-- Filtered list -->
-  <div class="grid3">
-    <div class="upgrade" v-for="u in filteredUpgrades" :key="u.id">
-      <div class="u-title">{{ u.title }}</div>
-      <div class="meta" v-if="u.desc">{{ u.desc }}</div>
-      <button class="btn block" @click="buy(u.id)" :disabled="gold < u.cost">
-        Buy ({{ Number(u.cost).toLocaleString() }})
-      </button>
+      <!-- Filtered list -->
+      <div class="grid3">
+        <div class="upgrade" v-for="u in filteredUpgrades" :key="u.id">
+          <div class="u-title">{{ u.title }}</div>
+          <div class="meta" v-if="u.desc">{{ u.desc }}</div>
+
+          <!-- NEW: live stat readout from state.js (modular) -->
+          <div class="meta text-xs opacity-75" v-if="u.readout">{{ u.readout }}</div>
+
+          <button class="btn block" @click="buy(u.id)" :disabled="gold < u.cost">
+            Buy ({{ Number(u.cost).toLocaleString() }})
+          </button>
+        </div>
+      </div>
     </div>
-  </div>
-</div>
 
-<!-- Abilities -->
-<div class="card">
-  <h3>Abilities</h3>
+    <!-- Abilities -->
+    <div class="card">
+      <h3>Abilities</h3>
 
-  <!-- Tabs -->
-  <div class="row wrap" style="gap:6px; margin-bottom:8px">
-    <button
-      v-for="tab in abilityTabs" :key="tab"
-      class="btn"
-      :class="{ primary: tab === selectedAbilityTab }"
-      @click="selectAbilityTab(tab)">
-      {{ tab }}
-    </button>
-  </div>
+      <!-- Tabs -->
+      <div class="row wrap" style="gap:6px; margin-bottom:8px">
+        <button
+          v-for="tab in abilityTabs" :key="tab"
+          class="btn"
+          :class="{ primary: tab === selectedAbilityTab }"
+          @click="selectAbilityTab(tab)">
+          {{ tab }}
+        </button>
+      </div>
 
-  <!-- Filtered buttons -->
-  <div class="row wrap">
-    <button class="btn ability"
-            v-for="a in filteredAbilities" :key="a.id"
-            :class="{cooling: a.cdLeft > 0}"
-            @click="cast(a.id)"
-            :disabled="a.cdLeft > 0 || !a.enabled">
-      {{ a.title }} <span class="hint" v-if="a.hint">({{ a.hint }})</span>
-      <span class="cooldown" v-if="a.cdLeft > 0">{{ a.cdLeft.toFixed(1) }}s</span>
-    </button>
-  </div>
-</div>
+      <!-- Filtered buttons -->
+      <div class="row wrap">
+        <button class="btn ability"
+                v-for="a in filteredAbilities" :key="a.id"
+                :class="{cooling: a.cdLeft > 0}"
+                @click="cast(a.id)"
+                :disabled="a.cdLeft > 0 || !a.enabled">
+          {{ a.title }} <span class="hint" v-if="a.hint">({{ a.hint }})</span>
+          <span class="cooldown" v-if="a.cdLeft > 0">{{ a.cdLeft.toFixed(1) }}s</span>
+        </button>
+      </div>
+    </div>
 
+  </div><!-- /#app -->
+</div><!-- /#wrap -->
 
 <!-- Vue -->
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
@@ -137,7 +142,6 @@
   // 1) Load all mods (reads ./mage-core/mods/mod-list.json)
   import { loadAllMods } from './mage-core/src/mod-loader.js';
   await loadAllMods();
-
 
   // 2) Boot the engine/game
   await import('./mage-core/src/main.js');

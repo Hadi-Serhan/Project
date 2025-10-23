@@ -1,55 +1,121 @@
 // mage-core/mods/vanilla-pack.js
 import Engine from '../src/engine.js';
 import { Audio } from '../src/audio.js';
-import { core, enemies, effects, dist, clamp, ctx } from '../src/state.js';
+import { core, enemies, effects, dist, clamp, ctx, Stats, CoreSchema } from '../src/state.js';
+import { utils as AbilityUtils } from '../src/abilities.js'; // visuals (makeRingEffect)
 
+/* ─────────────────────────────────────────────────────────────
+   AUDIO
+----------------------------------------------------------------*/
 Audio.load({
   'ability/nova/cast':  new URL('../assets/sfx/fire_ring.wav',  import.meta.url).href,
   'ability/frost/cast': new URL('../assets/sfx/snow_storm.wav', import.meta.url).href,
+  'ability/shock/cast': new URL('../assets/sfx/shock.wav',      import.meta.url).href,
+  'ability/drive/cast': new URL('../assets/sfx/overdrive.wav',  import.meta.url).href,
 });
 
 /* ─────────────────────────────────────────────────────────────
-   Core tuning (vanilla defaults)
+   STATS (for UI readouts) — labels + formatters
+   These keys are referenced from each upgrade via readoutKeys.
+----------------------------------------------------------------*/
+const f2 = (x) => (typeof x === 'number' ? Number(x).toFixed(2) : x);
+
+Stats.register('damage', {
+  label: 'Damage',
+  get: c => c.damage ?? c.baseDamage,
+  format: c => `Damage: ${f2(c.damage ?? c.baseDamage)}`
+});
+
+Stats.register('fireRate', {
+  label: 'Attack Speed',
+  get: c => c.fireRate ?? c.baseFireRate,
+  format: c => `Attack Speed: ${f2(c.fireRate ?? c.baseFireRate)}/s`
+});
+
+Stats.register('range', {
+  label: 'Range',
+  get: c => c.range ?? c.baseRange,
+  format: c => `Range: ${Math.round(c.range ?? c.baseRange)}`
+});
+
+Stats.register('armor', {
+  label: 'Armor',
+  get: c => c.armor ?? 0,
+  format: c => `Armor: ${Math.round(c.armor ?? 0)}`
+});
+
+Stats.register('hpRegen', {
+  label: 'Regen',
+  get: c => c.hpRegen ?? 0,
+  format: c => `Regen: ${f2(c.hpRegen ?? 0)}/s`
+});
+
+Stats.register('hp', {
+  label: 'HP',
+  get: c => [c.hp, c.hpMax],
+  format: c => `HP: ${Math.round(c.hp ?? 0)}/${Math.round(c.hpMax ?? 0)}`
+});
+
+Stats.register('aura', {
+  label: 'Aura',
+  get: c => [c.auraDps||0, c.auraRadius||0],
+  format: c => `Aura: ${f2(c.auraDps||0)} DPS • r=${Math.round(c.auraRadius||0)}`
+});
+
+/* ─────────────────────────────────────────────────────────────
+   CORE BASE DEFAULTS (schema-driven)
+   - We can either extend the schema or set base values via modifyCore.
+   - Here we stick to your values and force a recompute so UI readouts are correct.
 ----------------------------------------------------------------*/
 Engine.modifyCore((c) => {
+  // These are *base* fields — they’ll be copied to live fields by CoreSchema reset.
   c.baseDamage   = 35;
   c.baseFireRate = 1.2;
   c.baseRange    = 600;
   c.hpMax        = 1000;
-  c.hp = c.hpMax;
+  c.hp           = c.hpMax;
 
-  // important: re-derive from scratch
+  // Recompute from schema + upgrades, then stamp permanent bonuses
   c.applyUpgrades();
   Engine.applyPermToCore(c);
 });
 
 /* ─────────────────────────────────────────────────────────────
-   Upgrades: Offense
+   UPGRADES (data-first; schema/UI agnostic)
 ----------------------------------------------------------------*/
+
+// Offense
 Engine.registerUpgrade('dmg', {
   category: 'Offense',
   title: 'Damage',
   desc: 'Increase core damage (+5 per level).',
+  readoutKeys: ['damage'],
   cost(level){ const base=20,k=1.5; return Math.floor(base*Math.pow(k, level)); },
-  apply(c, level){ if (level) c.damage = c.baseDamage + 5 * level; }
+  apply(c, level){ if (level) c.damage = (c.baseDamage ?? c.damage ?? 0) + 5 * level; },
+  // Permanent: +2 flat damage per perm level
+  permanentApply(c, p){ if (p) c.damage = (c.damage ?? c.baseDamage ?? 0) + 2 * p; }
 });
 
 Engine.registerUpgrade('rof', {
   category: 'Offense',
   title: 'Fire Rate',
   desc: 'Increase attack speed (+0.2 per level).',
+  readoutKeys: ['fireRate'],
   cost(level){ const base=20,k=1.5; return Math.floor(base*Math.pow(k, level)); },
-  apply(c, level){ if (level) c.fireRate = c.baseFireRate + 0.2 * level; }
+  apply(c, level){ if (level) c.fireRate = (c.baseFireRate ?? c.fireRate ?? 0) + 0.2 * level; },
+  // Permanent: +0.1 atk/s per perm level
+  permanentApply(c, p){ if (p) c.fireRate = (c.fireRate ?? c.baseFireRate ?? 0) + 0.1 * p; }
 });
 
 Engine.registerUpgrade('aura', {
   category: 'Offense',
   title: 'Inferno Aura',
   desc: 'Passive damage to nearby enemies (bigger radius per level).',
+  readoutKeys: ['aura'],
   cost(level){ const base=35,k=1.6; return Math.floor(base*Math.pow(k, level)); },
   apply(c, lvl){
-    if (!lvl) return;          // level 0 = off
-    c.auraDps    = 3 + 2 * lvl;       // keep modest so it’s not OP at L1
+    if (!lvl) return;
+    c.auraDps    = 3 + 2 * lvl;
     c.auraRadius = 80 + 18 * lvl;
   },
   permanentApply(c, lvl){
@@ -59,19 +125,25 @@ Engine.registerUpgrade('aura', {
   }
 });
 
-/* ─────────────────────────────────────────────────────────────
-   Upgrades: Defense
-----------------------------------------------------------------*/
+// Defense
 Engine.registerUpgrade('hpmax', {
   category: 'Defense',
   title: 'Core Vitality',
   desc: 'Max HP +60 per level.',
+  readoutKeys: ['hp'],
   cost(level){ const base=25,k=1.55; return Math.floor(base*Math.pow(k, level)); },
   apply(c, lvl){
     if (!lvl) return;
     const prevMax = c.hpMax|0;
     c.hpMax = 1000 + 60 * lvl;
-    c.hp = Math.min(c.hp + (c.hpMax - prevMax), c.hpMax); // heal newly added capacity
+    c.hp = Math.min(c.hp + (c.hpMax - prevMax), c.hpMax);
+  },
+  // Permanent: +50 max HP per perm level
+  permanentApply(c, p){
+    if (!p) return;
+    const prevMax = c.hpMax|0;
+    c.hpMax = prevMax + 50 * p;
+    c.hp = Math.min(c.hp + (c.hpMax - prevMax), c.hpMax);
   }
 });
 
@@ -79,47 +151,53 @@ Engine.registerUpgrade('armor', {
   category: 'Defense',
   title: 'Arcane Plating',
   desc: 'Flat damage reduction (−1 per hit per level).',
+  readoutKeys: ['armor'],
   cost(level){ const base=28,k=1.6; return Math.floor(base*Math.pow(k, level)); },
-  apply(c, lvl){ if (lvl) c.armor = 1 * lvl; }
+  apply(c, lvl){ if (lvl) c.armor = 1 * lvl; },
+  // Permanent: +1 armor per perm level
+  permanentApply(c, p){ if (p) c.armor = (c.armor|0) + 1 * p; }
 });
 
 Engine.registerUpgrade('regen', {
   category: 'Defense',
   title: 'Reconstitution',
   desc: 'Regenerate HP over time (+0.8 HP/s per level).',
+  readoutKeys: ['hpRegen'],
   cost(level){ const base=30,k=1.55; return Math.floor(base*Math.pow(k, level)); },
-  apply(c, lvl){ if (lvl) c.hpRegen = 0.8 * lvl; }
+  apply(c, lvl){ if (lvl) c.hpRegen = 0.8 * lvl; },
+  // Permanent: +0.5 HP/s per perm level
+  permanentApply(c, p){ if (p) c.hpRegen = (c.hpRegen||0) + 0.5 * p; }
 });
 
-/* ─────────────────────────────────────────────────────────────
-   Upgrades: Utility
-----------------------------------------------------------------*/
+// Utility
 Engine.registerUpgrade('range', {
   category: 'Utility',
   title: 'Range',
   desc: 'Increase attack range (+12 per level).',
+  readoutKeys: ['range'],
   cost(level){ const base=20,k=1.5; return Math.floor(base*Math.pow(k, level)); },
-  apply(c, level){ if (level) c.range = c.baseRange + 12 * level; }
+  apply(c, level){ if (level) c.range = (c.baseRange ?? c.range ?? 0) + 12 * level; },
+  // Permanent: +8 range per perm level
+  permanentApply(c, p){ if (p) c.range = (c.range ?? c.baseRange ?? 0) + 8 * p; }
 });
 
 /* ─────────────────────────────────────────────────────────────
-   Passive Aura Tick (uses core.auraDps/auraRadius if present)
+   PASSIVE AURA TICK (schema-friendly; uses core fields)
 ----------------------------------------------------------------*/
 (function(){
   let lastT = performance.now()/1000;
 
   Engine.addOverlayDrawer(() => {
-    // dt tied to wall clock; clamp to avoid huge steps
     const now = performance.now()/1000;
     const dt = Math.min(0.05, Math.max(0, now - lastT));
     lastT = now;
 
     // regen tick
     if ((core.hpRegen||0) > 0 && core.hp > 0 && core.hp < core.hpMax) {
-      core.hp = Math.min(core.hpMax, core.hp + core.hpRegen * dt);
+      core.hp = Math.min(core.hpMax, Math.round((core.hp + core.hpRegen * dt) * 100) / 100);
     }
 
-    // passive AoE
+    // passive aura
     const dps = core.auraDps||0, rr = core.auraRadius||0;
     if (dps > 0 && rr > 0) {
       const r2 = rr*rr, cx = core.x(), cy = core.y();
@@ -127,7 +205,7 @@ Engine.registerUpgrade('range', {
         const p = e.pos, dx = p.x - cx, dy = p.y - cy;
         if (dx*dx + dy*dy <= r2) e.hp -= dps * dt;
       }
-      // subtle ring (kept, but feel free to hide)
+      // subtle ring
       ctx.save();
       ctx.strokeStyle = 'rgba(255,140,60,0.2)';
       ctx.lineWidth = 2;
@@ -136,14 +214,14 @@ Engine.registerUpgrade('range', {
     }
   });
 
-  // ensure the local clock resets after hardReset / reset
   Engine.addResetHook(() => { lastT = performance.now()/1000; });
 })();
-// ─────────────────────────────────────────────────────────────
-// ABILITIES
-// ─────────────────────────────────────────────────────────────
 
-// Nova (existing)
+/* ─────────────────────────────────────────────────────────────
+   ABILITIES
+----------------------------------------------------------------*/
+
+// Nova (Q)
 Engine.registerAbility('nova', {
   title: 'Nova', hint: 'Q', enabled: true,
   radius: 110, cd: 10, cdLeft: 0,
@@ -159,17 +237,15 @@ Engine.registerAbility('nova', {
         if (e.state === 'attacking') e.dist += 6;
       }
     }
-    effects.push(makeNovaFireRing(core.x(), core.y(), {
-      radius: this.radius + 10, thickness: 16, flameFreq: 12, flameAmp: 5, flameSpeed: 0.07, hueSpeed: 2.5, dur: 0.65
-    }));
-    effects.push(makeNovaFireRing(core.x(), core.y(), {
-      radius: this.radius + 26, thickness: 6, flameFreq: 6, flameAmp: 2, flameSpeed: 0.05, hueSpeed: 1.5, dur: 0.5
-    }));
+    if (AbilityUtils?.makeRingEffect) {
+      effects.push(AbilityUtils.makeRingEffect(core.x(), core.y(), this.radius + 10));
+      effects.push(AbilityUtils.makeRingEffect(core.x(), core.y(), this.radius + 26));
+    }
     return true;
   }
 });
 
-// Frost (existing slow aura)
+// Frost (W) — slow aura
 const frostDef = {
   title: 'Frost', hint: 'W', enabled: true,
   radius: 140, cd: 12, cdLeft: 0,
@@ -196,7 +272,7 @@ const frostDef = {
 };
 Engine.registerAbility('frost', frostDef);
 
-// NEW: Shockwave — stronger nova with big knockback (E)
+// Shockwave (E) — stronger nova with big knockback
 Engine.registerAbility('shockwave', {
   title: 'Shockwave', hint: 'E', enabled: true,
   radius: 150, cd: 12, cdLeft: 0,
@@ -212,14 +288,14 @@ Engine.registerAbility('shockwave', {
         e.dist += 12; // heavy knockback
       }
     }
-    effects.push(makeNovaFireRing(core.x(), core.y(), {
-      radius: this.radius + 16, thickness: 18, flameFreq: 10, flameAmp: 6, flameSpeed: 0.08, hueSpeed: 2.2, dur: 0.5
-    }));
+    if (AbilityUtils?.makeRingEffect) {
+      effects.push(AbilityUtils.makeRingEffect(core.x(), core.y(), this.radius + 16));
+    }
     return true;
   }
 });
 
-// NEW: Overdrive — temporary DMG & ROF buff (R)
+// Overdrive (R) — temporary DMG & ROF buff
 Engine.registerAbility('overdrive', {
   title: 'Overdrive', hint: 'R', enabled: true,
   cd: 20, cdLeft: 0, duration: 6,
@@ -228,18 +304,18 @@ Engine.registerAbility('overdrive', {
   cast() {
     if (this.cdLeft > 0 || this.enabled === false) return false;
     const now = performance.now()/1000;
-    core._driveUntil = now + this.duration;
-    core._driveDMul  = this.dmgMul;
-    core._driveRofMul= this.rofMul;
+    core._driveUntil  = now + this.duration;
+    core._driveDMul   = this.dmgMul;
+    core._driveRofMul = this.rofMul;
     return true;
   }
 });
 
-// ─────────────────────────────────────────────────────────────
-// MOD HOOKS
-// ─────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────
+   MOD HOOKS
+----------------------------------------------------------------*/
 
-// Frost slow (existing)
+// Frost slow application
 Engine.addEnemyModifier((enemy) => {
   const frost = Engine.registry?.abilities?.frost;
   if (!frost?.enabled) return null;
@@ -255,7 +331,7 @@ Engine.addEnemyModifier((enemy) => {
 // Draw frost overlay
 Engine.addOverlayDrawer(() => { const frost = Engine.registry?.abilities?.frost; frost?.drawOverlay?.(); });
 
-// NEW: Aura DoT + Overdrive ticking + Regen (we piggyback on overlay drawer to get a dt)
+// Overdrive ticking (non-destructive; recompute from base + upgrades + perm)
 (function(){
   let lastT = performance.now()/1000;
   Engine.addOverlayDrawer(() => {
@@ -263,42 +339,19 @@ Engine.addOverlayDrawer(() => { const frost = Engine.registry?.abilities?.frost;
     const dt = Math.min(0.05, Math.max(0, now - lastT));
     lastT = now;
 
-    // Regeneration
-    if ((core.regenPerSec||0) > 0 && core.hp > 0) {
-      core.hp = Math.min(core.hpMax, core.hp + core.regenPerSec * dt);
-    }
-
-    // Overdrive: apply multipliers while active (non-destructive)
     if (core._driveUntil > now) {
-      // Recompute from base to avoid compounding
-      const baseDmg = core.baseDamage + 5 * (Engine.state?.upgrades?.dmg||0);
-      const baseRof = core.baseFireRate + 0.2 * (Engine.state?.upgrades?.rof||0);
-      core.damage   = Math.round(baseDmg * (core.perm?.dmgMul || 1) * core._driveDMul);
-      core.fireRate = (baseRof * (core.perm?.rofMul || 1) * core._driveRofMul);
-    }
-
-    // Aura DoT
-    const dps = core.auraDps||0, rr = core.auraRadius||0;
-    if (dps > 0 && rr > 0) {
-      const r2 = rr*rr;
-      const cx = core.x(), cy = core.y();
-      for (const e of enemies) {
-        const p = e.pos, dx = p.x - cx, dy = p.y - cy;
-        if (dx*dx + dy*dy <= r2) {
-          e.hp -= dps * dt;
-        }
-      }
-      // faint visual ring
-      ctx.save();
-      ctx.strokeStyle = 'rgba(255,140,60,0.2)';
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI*2); ctx.stroke();
-      ctx.restore();
+      // Recompute from base to avoid compounding (use registry upgrade levels if you track them in Engine.state)
+      const lvlD = Engine.state?.upgrades?.dmg||0;
+      const lvlR = Engine.state?.upgrades?.rof||0;
+      const baseDmg = (core.baseDamage ?? 0) + 5 * lvlD;
+      const baseRof = (core.baseFireRate ?? 0) + 0.2 * lvlR;
+      core.damage   = Math.round(baseDmg * (core.perm?.dmgMul || 1) * (core._driveDMul||1));
+      core.fireRate = baseRof * (core.perm?.rofMul || 1) * (core._driveRofMul||1);
     }
   });
 })();
 
-// NEW: Barrier damage reduction by refunding a portion on hit
+// Barrier: refund a portion of damage taken (if a mod set core.dmgReduce)
 Engine.on('core:hit', ({ amount }) => {
   const dr = Math.max(0, Math.min(core.dmgReduce||0, 0.6));
   if (dr <= 0) return;
@@ -308,7 +361,7 @@ Engine.on('core:hit', ({ amount }) => {
   }
 });
 
-// NEW: Greed extra gold — apply on kill
+// Greed: extra gold on kill
 Engine.on('enemy:death', ({ enemy }) => {
   const mul = Math.max(1, core.goldBonusMul || 1);
   if (mul <= 1.0001) return;
@@ -317,16 +370,18 @@ Engine.on('enemy:death', ({ enemy }) => {
   if (extra > 0) Engine.addGold(extra);
 });
 
-// Clean up on reset
+// Reset cleanup
 Engine.addResetHook(() => {
   const frost = Engine.registry?.abilities?.frost;
   if (frost) { frost.zones.length = 0; frost.cdLeft = 0; }
-  const nova = Engine.registry?.abilities?.nova;   if (nova)  nova.cdLeft = 0;
-  const sh   = Engine.registry?.abilities?.shockwave; if (sh) sh.cdLeft = 0;
-  const drv  = Engine.registry?.abilities?.overdrive; if (drv) drv.cdLeft = 0;
+  const nova = Engine.registry?.abilities?.nova;        if (nova)  nova.cdLeft = 0;
+  const sh   = Engine.registry?.abilities?.shockwave;   if (sh)    sh.cdLeft = 0;
+  const drv  = Engine.registry?.abilities?.overdrive;   if (drv)   drv.cdLeft = 0;
 });
 
-// Optional hotkeys: Q/W/E/R
+/* ─────────────────────────────────────────────────────────────
+   HOTKEYS
+----------------------------------------------------------------*/
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === 'q') window.engine?.actions?.cast?.('nova');

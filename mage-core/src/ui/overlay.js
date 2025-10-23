@@ -3,6 +3,7 @@
 
 import Engine from '../engine.js';
 import { Audio } from '../audio.js';
+import { Stats, core as CoreRef } from '../state.js';
 
 function el(tag, css, html){
   const n = document.createElement(tag);
@@ -399,14 +400,42 @@ export function initMenuUI({ onPlay, onBuyPermanent, playMenuMusic = false } = {
   function renderUpgrades(){
     const snap = window.engine?.getSnapshot?.() || {};
     const rows = (snap.permanent || []).filter(r=>r.kind==='upgrade');
+
+    // Helper: compute a live readout using the upgrade's own readout/readoutKeys
+    function liveReadoutForUpgrade(upgradeId){
+      try {
+        const id = String(upgradeId || '').replace(/^upgrade:/, ''); // normalize
+        const def = Engine.registry?.upgrades?.[id];
+        if (!def) return '';
+
+       // Prefer def.readout(core, ctx), else Stats via readoutKeys
+       const liveCore = Engine.state?.core || CoreRef || {};
+       if (typeof def.readout === 'function') {
+         return def.readout(liveCore, {
+           Stats,
+          upgrades: Engine.state?.upgrades || {}
+         }) || '';
+       }
+        if (Array.isArray(def.readoutKeys) && def.readoutKeys.length) {
+         return Stats ? Stats.formatMany(liveCore, def.readoutKeys) : '';
+        }
+      } catch(e) {
+        console.warn('[overlay readout]', e);
+      }
+      return '';
+    }
+
     panel.innerHTML = '<div style="font-weight:700;margin-bottom:8px">Permanent Upgrades (Prestige)</div>';
+
     for (const m of rows) {
+      const readout = liveReadoutForUpgrade(m.id); // <— live, correct id
       const row = el('div',
         'display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,.08)');
       row.innerHTML = `
         <div>
           <div style="font-weight:700">${m.title}</div>
           <div style="opacity:.85;font-size:12px">Permanent Level: ${m.level|0}</div>
+          ${readout ? `<div style="opacity:.85; font-size:12px">${readout}</div>` : ''}
         </div>
         <button
           data-intent="buy"
@@ -417,14 +446,30 @@ export function initMenuUI({ onPlay, onBuyPermanent, playMenuMusic = false } = {
       `;
       panel.appendChild(row);
     }
+
     panel.querySelectorAll('button[data-id]').forEach(b=>{
       b.onclick = () => {
         const ok = onBuyPermanent?.(b.dataset.id);
         Audio.play(ok ? 'ui/purchase/confirm' : 'ui/purchase/decline', { group: 'sfx' });
-        refreshTop(); renderUpgrades();
+
+        // After a successful buy, make sure the core is recomputed BEFORE we re-render
+        if (ok) {
+          try {
+            const c = Engine.state?.core || window.core;
+            if (c?.applyUpgrades) c.applyUpgrades();
+            if (Engine.applyPermToCore) Engine.applyPermToCore(c);
+          } catch(e){ console.warn('[perm buy recompute]', e); }
+        }
+
+        refreshTop();
+        renderUpgrades(); // re-render with fresh values
       };
     });
   }
+
+
+
+
 
   const refreshTop = () => {
     const snap = window.engine?.getSnapshot?.() || {};
@@ -483,7 +528,11 @@ export function openPauseMenu({ onResume, onSurrender, onMainMenu } = {}) {
   root.appendChild(panel);
 
   panel.querySelector('#pm-resume').onclick    = () => { root.remove(); onResume?.(); };
-  panel.querySelector('#pm-surrender').onclick = () => { root.remove(); onSurrender?.(); };
+  panel.querySelector('#pm-surrender').onclick = () => {
+    root.remove();
+    if (onSurrender) onSurrender();
+    else window.engine?.actions?.reset?.();          
+  };
   panel.querySelector('#pm-main').onclick      = () => {
     Audio.stopMusic();
     Audio.playMusic('music/menu', { volume: 0.5, loop: true });
@@ -523,7 +572,12 @@ export function showDefeatMenu({ wave, prestige, onTryAgain, onMainMenu } = {}) 
   `;
   root.appendChild(panel);
 
-  panel.querySelector('#df-try').onclick  = () => { root.remove(); onTryAgain?.(); };
+  panel.querySelector('#df-try').onclick  = () => {
+    root.remove();
+    if (onTryAgain) onTryAgain();
+    else window.engine?.actions?.reset?.();         
+  };
+  
   panel.querySelector('#df-menu').onclick = () => {
     Audio.stopMusic();
     Audio.playMusic('music/menu', { volume: 0.5, loop: true });

@@ -1,9 +1,6 @@
 // mage-core/src/engine.js
-// Tiny Engine shim: registries + event bus + mod hooks + helpers + prestige & permanent upgrades.
 
-///////////////////////
 // Event Bus
-///////////////////////
 const listeners = new Map(); // event -> Set<fn>
 function on(evt, fn) { if (!listeners.has(evt)) listeners.set(evt, new Set()); listeners.get(evt).add(fn); return () => off(evt, fn); }
 function off(evt, fn) { const set = listeners.get(evt); if (set) set.delete(fn); }
@@ -12,9 +9,7 @@ function emit(evt, payload) {
   if (set) for (const fn of set) { try { fn(payload); } catch (e) { console.warn('[Engine emit error]', evt, e); } }
 }
 
-///////////////////////
 // RNG (mulberry32)
-///////////////////////
 function makeRng(seed = 1337) {
   let t = seed >>> 0;
   return function rng() {
@@ -27,9 +22,7 @@ function makeRng(seed = 1337) {
 }
 let _rng = makeRng(1337);
 
-///////////////////////
-// Registries (data-first)
-///////////////////////
+// Registries 
 const registry = {
   enemies: Object.create(null),
   abilities: Object.create(null),
@@ -39,7 +32,7 @@ const registry = {
 };
 
 // --- Permanent upgrade price resolver (mods can override per item) ---
-function _permCostFallback(level){               // default curve
+function _permCostFallback(level){
   return 5 + Math.floor(Math.pow(1.35, level|0));
 }
 
@@ -59,50 +52,38 @@ function _getPermanentPrice(kind, id, level = 0, ctx = {}) {
   return _permCostFallback(level|0);
 }
 
-
-///////////////////////
 // Factories / sinks (provided by main game)
-///////////////////////
 let enemyFactory = null;     // (def, waveNum, overrides) => enemyInstance
 let goldSink = null;         // (amount) => void
 let coreMutator = null;      // (fn(core)) => void
 
-// NEW: queue modifyCore calls until coreMutator is installed
+// queue modifyCore calls until coreMutator is installed
 const _pendingCoreMods = [];
 
-///////////////////////
 // Wave recipe plumbing
-///////////////////////
 let _defaultWaveRecipe = null;
 let _currentWaveRecipe  = (w)=>[];
 let _waveRecipeBridge   = null;
 
-///////////////////////
 // Mod hooks
-///////////////////////
 const enemyModifiers = new Set();  // f(enemy, dt, ctx) -> {speedMul?, atkMul?}
 const overlayDrawers = new Set();  // f(ctx) -> void
 const resetHooks     = new Set();  // f() -> void
 
-///////////////////////
 // Bridges
-///////////////////////
 let abilityBridge = { register(){}, remove(){}, cast(){ return false; } };
 let assetsBridge  = async (_manifest) => {};
 
-///////////////////////
 // Live state accessor
-///////////////////////
-let stateAccessor = null; // () => ({ core, enemies, effects, projectiles })
+let stateAccessor = null; // () => ({ core, enemies, effects, projectiles, upgrades, gold, prestige })
 
-///////////////////////
-// Permanent Upgrades (Prestige)
-///////////////////////
+// Permanent Upgrades
 let _permLevels = Object.create(null); // id -> level (numbers)
-let _abilityCdMul = 1;                 // global CD mul (still supported)
+let _abilityCdMul = 1;                 // global CD mul 
 const _prestigeRules = new Set();      // (evt) => non-negative integer
 
-
+// Readout formatting bridge 
+let _readoutFormatter = null; // (core, def) => string
 
 // Helper
 const _num = (n, d=0) => Number.isFinite(n) ? n : d;
@@ -124,15 +105,12 @@ const Engine = {
   setGoldSink(fn)     { goldSink = fn; },
   setCoreMutator(fn)  {
     coreMutator = fn;
-    // Apply any pending core mutations that came in before setCoreMutator was ready
     if (_pendingCoreMods.length) {
       try {
         for (const modFn of _pendingCoreMods.splice(0)) {
           try { coreMutator(modFn); } catch (e) { console.warn('[Engine.setCoreMutator pending core mod error]', e); }
         }
-      } finally {
-        // no-op
-      }
+      } finally { /* no-op */ }
     }
   },
 
@@ -215,9 +193,22 @@ const Engine = {
   },
 
   // State accessor
-  setStateAccessor(fn) { stateAccessor = fn; },
-  setStateApi(fn) { stateAccessor = fn; },
-  get state() { return stateAccessor ? stateAccessor() : null; },
+  setStateApi(objOrFn) {
+    // Accept a function OR a plain object
+    if (typeof objOrFn === 'function') {
+      stateAccessor = objOrFn;
+    } else {
+      const snapshot = objOrFn || {};
+      stateAccessor = () => snapshot;
+    }
+  },
+  setStateAccessor(fn) { // back-compat
+    stateAccessor = (typeof fn === 'function') ? fn : () => (fn || {});
+  },
+  get state() {
+    try { return stateAccessor ? stateAccessor() : null; }
+    catch { return null; }
+  },
 
   // Enemy modifiers & overlays
   addEnemyModifier(fn) { if (typeof fn === 'function') enemyModifiers.add(fn); return () => enemyModifiers.delete(fn); },
@@ -295,7 +286,6 @@ const Engine = {
     Engine.setAbilityCooldownMul(cdMul);
 
     // ---- Abilities: support per-ability permanent levels ----
-    // Keyed as "ability:<id>". Mods can override with ability.permanentApply(level, ctx).
     for (const [abId, ab] of Object.entries(registry.abilities)) {
       const lvl = _permLevels[`ability:${abId}`] | 0;
       if (lvl <= 0) continue;
@@ -335,12 +325,84 @@ const Engine = {
   resetPrestigeRules() {
     _prestigeRules.clear();
   },
-setPrestigeRules(rules = []) {
+  setPrestigeRules(rules = []) {
     _prestigeRules.clear();
     for (const fn of rules) if (typeof fn === 'function') _prestigeRules.add(fn);
   },
 
+  // --------- Readout formatter bridge (set by state.js) ----------
+  setReadoutFormatter(fn){ _readoutFormatter = (typeof fn === 'function') ? fn : null; },
+
+  // --------- Snapshot for menus / overlay ----------
+  getSnapshot(){
+    const S = Engine.state || {};
+    const regU = registry.upgrades || {};
+    const regA = registry.abilities || {};
+    const core = S.core;
+
+    // permanent upgrades for menu
+    const permanent = Object.entries(regU).map(([id, def]) => {
+      const level = (Engine.getPermLevels()?.[id] | 0) || 0;
+      const price = _getPermanentPrice('upgrade', id, level, { core, levels: Engine.getPermLevels() });
+      return {
+        kind: 'upgrade',
+        id: 'upgrade:' + id, // overlay returns this id on buy
+        title: def.title || id,
+        level,
+        price
+      };
+    });
+
+    // abilities (optional permanent levels)
+    const abilities = Object.entries(regA).map(([id, def]) => {
+      const pl = (Engine.getPermLevels()?.['ability:'+id] | 0) || 0;
+      const price = _getPermanentPrice('ability', id, pl, { core, levels: Engine.getPermLevels() });
+      return {
+        id,
+        title: def.title || id,
+        hint: def.hint || '',
+        cd: Number(def.cd || 0),
+        permLevel: pl,
+        permPrice: price
+      };
+    });
+
+    // readouts (id + "upgrade:id")
+    const readouts = {};
+    if (core) {
+      for (const [id, def] of Object.entries(regU)) {
+        let line = '';
+        try {
+          if (_readoutFormatter) line = _readoutFormatter(core, def) || '';
+          else if (typeof def.readout === 'function') line = def.readout(core, { levels: Engine.getPermLevels() }) || '';
+        } catch (e) { /* ignore */ }
+        if (line) { readouts[id] = line; readouts['upgrade:'+id] = line; }
+      }
+    }
+
+    return {
+      gold: S.gold|0,
+      prestige: S.prestige|0,
+      lastSaved: Engine._lastSaved || null,
+      permanent,
+      abilities,
+      readouts,
+    };
+  },
 };
 
 window.Engine = Engine;
+
+// After a permanent buy, re-apply perms and upgrades immediately so readouts change
+Engine.on('meta:buy', () => {
+  try {
+    const S = Engine.state || {};
+    if (!S.core) return;
+    Engine.applyPermToCore(S.core);
+    S.core.applyUpgrades?.();
+  } catch (e) {
+    console.warn('[Engine meta:buy reapply]', e);
+  }
+});
+
 export default Engine;
