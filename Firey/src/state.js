@@ -201,7 +201,7 @@ export const core = {
 
   applyUpgrades() {
     // If any upgrade touches a *base* key, force it to re-seed this reset.
-    // Your hpmax upgrade writes to hpMax (a base field).
+    // hpmax upgrade writes to hpMax (a base field).
     CoreSchema.forceBase(this, 'hpMax');
 
     // 1) Reset all base/derived fields from schema
@@ -243,7 +243,7 @@ Engine.setCoreMutator((fn) => {
 });
 
 /* ─────────────────────────────────────────────────────────────
-   CORE DEFAULTS FROM ENGINE (optional hook)
+   CORE DEFAULTS FROM ENGINE 
 ----------------------------------------------------------------*/
 function _applyCoreDefaultsFromEngine() {
   const defs = (typeof Engine.getCoreDefaults === 'function')
@@ -265,7 +265,7 @@ function _applyCoreDefaultsFromEngine() {
 _applyCoreDefaultsFromEngine();
 core.applyUpgrades();
 
-// React to future default changes (mods can call Engine.setCoreDefaults)
+// React to future default changes 
 Engine.on('core:defaults', () => {
   _applyCoreDefaultsFromEngine();
   core.applyUpgrades();

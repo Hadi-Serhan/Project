@@ -70,7 +70,7 @@ const DEFAULT_ASSETS = {
   map: 'assets/maps/default_map.png'
 };
 
-// SFX manifest: change filenames if you prefer other names
+// SFX manifest
 Audio.load({
   'ui/click':     new URL('../assets/sfx/ui_click1.mp3', import.meta.url).href,
   'ui/switch':   new URL('../assets/sfx/switch.mp3', import.meta.url).href,
@@ -823,7 +823,7 @@ function buyPermanent(rowId) {
 function castAbility(which) {
   const ok = Engine.castAbility(which);
   if (ok) {
-    // NEW: look up the ability's own SFX key from the registry
+    // look up the ability's own SFX key from the registry
     const meta = Engine.registry?.abilities?.[which];
     const sfxKey =
       meta?.sfx?.cast ||            

@@ -1,5 +1,5 @@
 // Firey/src/abilities.js
-// Ability system bridge + dynamic facades (no built-in abilities here).
+// Ability system bridge + dynamic facades .
 
 import Engine from './engine.js';
 import { ctx, clamp } from './state.js';
@@ -27,7 +27,7 @@ function abilityCast(id, args = {}) {
   if (typeof ab.cdLeft === 'number' && ab.cdLeft > 0) return false;
   if (typeof ab.cast !== 'function') return false;
 
-  // IMPORTANT: bind `this` to the ability object
+  // bind `this` to the ability object
   const ok = !!ab.cast.call(ab, args);
   if (ok && typeof ab.cd === 'number' && ab.cd > 0) ab.cdLeft = ab.cd;
   return ok;
@@ -54,7 +54,7 @@ Engine.setAbilityBridge({
   requestAnimationFrame(loop);
 })();
 
-// --------- dynamic facades so main.js can keep importing { nova, frost } ----------
+// --------- dynamic facades so main.js can keep importing ----------
 function abilityFacade(id){
   const proxy = {};
   const defaults = { title:'', hint:'', enabled:true, cd:0, cdLeft:0 };
@@ -72,7 +72,7 @@ function abilityFacade(id){
   Object.defineProperty(proxy, 'zones', {
     get(){
       const ab = Engine.registry?.abilities?.[id];
-      // always return an array (never undefined)
+      // always return an array
       return ab?.zones ?? (ab ? (ab.zones = []) : []);
     },
     set(v){
@@ -100,5 +100,5 @@ function abilityFacade(id){
   return proxy;
 }
 
-export const nova  = abilityFacade('nova');   // if a content pack defines 'nova'
-export const frost = abilityFacade('frost');  // if a content pack defines 'frost'
+export const nova  = abilityFacade('nova');  
+export const frost = abilityFacade('frost');  

@@ -1,7 +1,6 @@
 // src/audio.js
 // Lightweight SFX helper with gesture gating + simple spatial volume.
 // + Music manager with crossfaded looping, visibility auto-pause, and unload stop.
-// Exports: { Audio, installSoundHooks }
 
 const _state = {
   ready: false,              // set true after user gesture (call Audio.init())
@@ -155,7 +154,7 @@ export const Audio = {
 };
 
 /* ================================
-   MUSIC MANAGER (crossfaded loop)
+   MUSIC MANAGER
    ================================ */
 
 const _music = {

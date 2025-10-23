@@ -1,5 +1,4 @@
 // Firey/src/ui/overlay.js
-// Overlays + audio UI + buy decline SFX via a transparent guard ONLY when a buy button is disabled.
 
 import Engine from '../engine.js';
 import { Audio } from '../audio.js';
@@ -13,7 +12,7 @@ function el(tag, css, html){
 }
 
 /* ─────────────────────────────────────────────────────────────
-   BUY BUTTON HELPERS (guard only on disabled)
+   BUY BUTTON HELPERS 
 ----------------------------------------------------------------*/
 
 const GUARD_CLASS = 'buy-decline-guard';

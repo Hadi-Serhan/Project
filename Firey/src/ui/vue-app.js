@@ -13,7 +13,7 @@ function buildUpgradesList(readouts, costsAll) {
     desc: def.desc || '',
     // prefer dynamic cost from snapshot if present, fallback to cost()
     cost: (costsAll && Number.isFinite(costsAll[id])) ? costsAll[id] : cost(id),
-    // NEW: show modular, live readout from snapshot (computed in state.js)
+    //show modular, live readout from snapshot (computed in state.js)
     readout: readouts?.[id] || '',
   }));
   list.sort((a,b) =>
@@ -51,7 +51,7 @@ createApp({
       // snapshot fields
       wave: 0, coreHP: 0, gold: 0,
       costs: { dmg:0, rof:0, range:0 },
-      // NEW: dynamic map for all upgrade costs + modular readouts
+      // dynamic map for all upgrade costs + modular readouts
       costsAll: {},
       readouts: {},
 

@@ -1,5 +1,5 @@
 // Firey/src/content.js
-// Enemy types + simple wave recipe. Easy to tweak or later move to JSON.
+// Enemy types + simple wave recipe.
 import Engine from './engine.js';
 
 export const ENEMY_TYPES = {
@@ -9,7 +9,6 @@ export const ENEMY_TYPES = {
   boss:   { speed: 50,  hp: 420, coreDamage: 20, radius: 20, color: '#d86be0', baseGold: 120, attackPeriod: 0.8, boss: true }
 };
 
-// NOTE: use `let` so Engine can swap this at runtime via a bridge.
 export let waveRecipe = function(wave) {
   // Decide spawns for a wave. Returns array of { type, count, cadenceMul }
   const packs = [{ type: 'grunt', count: 8 + Math.floor(wave*1.5), cadenceMul: 1.0 }];

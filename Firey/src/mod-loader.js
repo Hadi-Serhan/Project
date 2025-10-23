@@ -1,15 +1,15 @@
 // Firey/src/mod-loader.js
-// Ensure Engine + ability bridge before mods (do this once)
+// Ensure Engine + ability bridge before mods 
 if (!window.__mc_bridge_ready) {
   await import('./engine.js');
   await import('./abilities.js'); // installs ability bridge + tick system
   window.__mc_bridge_ready = true;
 }
 
-// Keep a single, stable list (avoid path variations)
+// Keep a single, stable list 
 const MODS = [
-  new URL('../mods/vanilla-pack.js', import.meta.url).href, // your base game content
-  new URL('../mods/sample-mod.js', import.meta.url).href,   // example mod (can comment out)
+  new URL('../mods/vanilla-pack.js', import.meta.url).href, // base game content
+  new URL('../mods/sample-mod.js', import.meta.url).href,   // example mod
 ];
 
 // Idempotent guard so double imports won't double-load mods

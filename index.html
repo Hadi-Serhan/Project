@@ -88,7 +88,7 @@
           <div class="u-title">{{ u.title }}</div>
           <div class="meta" v-if="u.desc">{{ u.desc }}</div>
 
-          <!-- NEW: live stat readout from state.js (modular) -->
+          <!-- live stat readout from state.js-->
           <div class="meta text-xs opacity-75" v-if="u.readout">{{ u.readout }}</div>
 
           <button class="btn block" @click="buy(u.id)" :disabled="gold < u.cost">
