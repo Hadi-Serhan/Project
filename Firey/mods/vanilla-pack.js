@@ -219,26 +219,48 @@ Engine.registerUpgrade('range', {
    ABILITIES
 ----------------------------------------------------------------*/
 
+// helpers
+const _AL = (id) => (typeof Engine.getAbilityPermLevel === 'function' ? (Engine.getAbilityPermLevel(id) | 0) : 0);
+const _cooldown = (base, lvl) => Math.max(1, base * Math.pow(0.94, lvl)); // ~ -6% CD per perm level
+
 // Nova (Q)
 Engine.registerAbility('nova', {
   title: 'Nova', hint: 'Q', enabled: true,
+  // base knobs
   radius: 110, cd: 10, cdLeft: 0,
   damageBase: 35, damageCoef: 0.6,
   sfx: { cast: 'ability/nova/cast' },
+
+  // effective w/ permanents
+  _lvl() { return _AL('nova'); },
+  _effectiveRadius() { return this.radius + 8 * this._lvl(); },
+  _effectiveCd() { return _cooldown(this.cd, this._lvl()); },
+  _effectiveDamage() {
+    const L = this._lvl();
+    const base = this.damageBase + 10 * L;
+    const coef = this.damageCoef + 0.05 * L;
+    return base + coef * core.damage;
+  },
+
   cast() {
     if (this.cdLeft > 0 || this.enabled === false) return false;
-    const dmg = this.damageBase + this.damageCoef * core.damage;
+
+    const dmg = this._effectiveDamage();
+    const rr  = this._effectiveRadius();
+
     for (const e of enemies) {
       const p = e.pos;
-      if (dist(core.x(), core.y(), p.x, p.y) <= this.radius) {
+      if (dist(core.x(), core.y(), p.x, p.y) <= rr) {
         e.hp -= dmg;
         if (e.state === 'attacking') e.dist += 6;
       }
     }
     if (AbilityUtils?.makeRingEffect) {
-      effects.push(AbilityUtils.makeRingEffect(core.x(), core.y(), this.radius + 10));
-      effects.push(AbilityUtils.makeRingEffect(core.x(), core.y(), this.radius + 26));
+      effects.push(AbilityUtils.makeRingEffect(core.x(), core.y(), rr + 10));
+      effects.push(AbilityUtils.makeRingEffect(core.x(), core.y(), rr + 26));
     }
+
+    this.cdLeft = this._effectiveCd();
     return true;
   }
 });
@@ -246,21 +268,40 @@ Engine.registerAbility('nova', {
 // Frost (W) — slow aura
 const frostDef = {
   title: 'Frost', hint: 'W', enabled: true,
+  // base knobs
   radius: 140, cd: 12, cdLeft: 0,
+  duration: 5.0, slow: 0.35,
   sfx: { cast: 'ability/frost/cast' },
-  zones: [], duration: 5.0, slow: 0.35,
+
+  // state
+  zones: [],
+
+  // effective w/ permanents
+  _lvl() { return _AL('frost'); },
+  _effectiveRadius() { return this.radius + 10 * this._lvl(); },
+  _effectiveDuration() { return this.duration + 0.5 * this._lvl(); },
+  _effectiveSlow() { return Math.min(0.75, this.slow + 0.03 * this._lvl()); }, // cap @ 75%
+  _effectiveCd() { return _cooldown(this.cd, this._lvl()); },
+
   cast() {
     if (this.cdLeft > 0 || this.enabled === false) return false;
-    const until = performance.now()/1000 + this.duration;
+    const until = performance.now()/1000 + this._effectiveDuration();
+
     this.zones.length = 0;
-    this.zones.push({ x: core.x(), y: core.y(), r: this.radius, until });
+    this.zones.push({ x: core.x(), y: core.y(), r: this._effectiveRadius(), until, slow: this._effectiveSlow() });
+
+    this.cdLeft = this._effectiveCd();
     return true;
   },
+
   drawOverlay() {
     const z = this.zones[0]; if (!z) return;
     const now = performance.now()/1000;
     if (now >= z.until) { this.zones.length = 0; return; }
-    const t = clamp((z.until - now) / this.duration, 0, 1);
+
+    const total = z.until - (now - (this._effectiveDuration() - (z.until - now))); // recompute total-ish
+    const t = clamp((z.until - now) / (total || this._effectiveDuration()), 0, 1);
+
     ctx.fillStyle = `rgba(120,180,255,${0.15 * t + 0.1})`;
     ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI*2); ctx.fill();
     ctx.strokeStyle = `rgba(120,180,255,${0.6 * t})`;
@@ -270,57 +311,86 @@ const frostDef = {
 };
 Engine.registerAbility('frost', frostDef);
 
-// Shockwave (E) —
+// Shockwave (E)
 Engine.registerAbility('shockwave', {
   title: 'Shockwave', hint: 'E', enabled: true,
+  // base knobs
   radius: 150, cd: 12, cdLeft: 0,
   damageBase: 20, coef: 0.8,
   sfx: { cast: 'ability/shock/cast' },
+
+  // effective w/ permanents
+  _lvl() { return _AL('shockwave'); },
+  _effectiveRadius() { return this.radius + 12 * this._lvl(); },
+  _effectiveCd() { return _cooldown(this.cd, this._lvl()); },
+  _effectiveDamage() {
+    const L = this._lvl();
+    const base = this.damageBase + 10 * L;
+    const coef = this.coef + 0.10 * L;
+    return base + coef * core.damage;
+  },
+
   cast() {
     if (this.cdLeft > 0 || this.enabled === false) return false;
-    const dmg = this.damageBase + this.coef * core.damage;
+
+    const rr  = this._effectiveRadius();
+    const dmg = this._effectiveDamage();
+
     for (const e of enemies) {
       const p = e.pos;
-      if (dist(core.x(), core.y(), p.x, p.y) <= this.radius) {
+      if (dist(core.x(), core.y(), p.x, p.y) <= rr) {
         e.hp -= dmg;
         e.dist += 12; // heavy knockback
       }
     }
     if (AbilityUtils?.makeRingEffect) {
-      effects.push(AbilityUtils.makeRingEffect(core.x(), core.y(), this.radius + 16));
+      effects.push(AbilityUtils.makeRingEffect(core.x(), core.y(), rr + 16));
     }
+
+    this.cdLeft = this._effectiveCd();
     return true;
   }
 });
 
-// Overdrive (R) — temporary DMG & ROF buff
+// Overdrive (R) — temporary DMG & ROF buff (snapshot-safe)
 Engine.registerAbility('overdrive', {
   title: 'Overdrive', hint: 'R', enabled: true,
+  // base knobs
   cd: 20, cdLeft: 0, duration: 6,
   dmgMul: 1.2, rofMul: 1.6,
   sfx: { cast: 'ability/drive/cast' },
+
+  // effective w/ permanents
+  _lvl() { return _AL('overdrive'); },
+  _effectiveCd() { return _cooldown(this.cd, this._lvl()); },
+  _effectiveDuration() { return this.duration + 0.8 * this._lvl(); },
+  _effectiveDmgMul() { return this.dmgMul + 0.05 * this._lvl(); },
+  _effectiveRofMul() { return this.rofMul + 0.10 * this._lvl(); },
+
   cast() {
     if (this.cdLeft > 0 || this.enabled === false) return false;
+
     const now = performance.now()/1000;
 
-    // Snapshot current upgraded/permanent-adjusted stats
-    core._driveUntil   = now + this.duration;
-    core._driveDMul    = this.dmgMul;
-    core._driveRofMul  = this.rofMul;
+    // Snapshot the current (already-upgraded/permanent) stats so OD can only go UP
+    core._driveUntil  = now + this._effectiveDuration();
+    core._driveDMul   = this._effectiveDmgMul();
+    core._driveRofMul = this._effectiveRofMul();
     core._driveBase = {
       damage:   Number(core.damage   ?? core.baseDamage   ?? 0),
       fireRate: Number(core.fireRate ?? core.baseFireRate ?? 0),
     };
 
+    this.cdLeft = this._effectiveCd();
     return true;
   }
 });
 
 /* ─────────────────────────────────────────────────────────────
-   MOD HOOKS
+   MOD HOOKS (Frost slow + Overdrive tick)
 ----------------------------------------------------------------*/
 
-// Frost slow application
+// Frost slow application (uses zone.slow if present)
 Engine.addEnemyModifier((enemy) => {
   const frost = Engine.registry?.abilities?.frost;
   if (!frost?.enabled) return null;
@@ -328,7 +398,7 @@ Engine.addEnemyModifier((enemy) => {
   const now = performance.now()/1000; if (now >= z.until) { frost.zones.length = 0; return null; }
   const p = enemy.pos; const dx = p.x - z.x, dy = p.y - z.y;
   if ((dx*dx + dy*dy) > (z.r*z.r)) return null;
-  const s = Math.max(0, Math.min(0.95, frost.slow ?? 0));
+  const s = Math.max(0, Math.min(0.95, z.slow ?? frost._effectiveSlow()));
   const slow = enemy.boss ? Math.min(s, 0.20) : s;
   return { speedMul: 1 - slow, atkMul: 1 / (1 - slow) };
 });
@@ -336,7 +406,7 @@ Engine.addEnemyModifier((enemy) => {
 // Draw frost overlay
 Engine.addOverlayDrawer(() => { const frost = Engine.registry?.abilities?.frost; frost?.drawOverlay?.(); });
 
-// Overdrive tickin
+// Overdrive tickin — snapshot-safe, never reduces rate/damage
 (function(){
   let lastT = performance.now()/1000;
   Engine.addOverlayDrawer(() => {
@@ -348,20 +418,18 @@ Engine.addOverlayDrawer(() => { const frost = Engine.registry?.abilities?.frost;
       const baseD = core._driveBase.damage;
       const baseR = core._driveBase.fireRate;
 
-      // Never drop below the snapshot
       const dmg = baseD * (core._driveDMul  || 1);
       const rof = baseR * (core._driveRofMul|| 1);
 
-      core.damage   = Math.max(dmg, baseD);
-      core.fireRate = Math.max(rof, baseR);
+      core.damage   = Math.max(baseD, Math.round(dmg));
+      core.fireRate = Math.max(baseR, rof);
     } else if (core._driveUntil && core._driveUntil <= now) {
-      // Expired — clean up and let normal upgrade/permanent logic be authoritative again
+      // Expired — clean up and restore normal computation
       delete core._driveUntil;
       delete core._driveDMul;
       delete core._driveRofMul;
       delete core._driveBase;
 
-      // Recompute from schema + upgrades + permanents
       try { core.applyUpgrades(); Engine.applyPermToCore(core); } catch {}
     }
   });
