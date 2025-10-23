@@ -763,7 +763,7 @@ function hardReset() {
 
 function buyUpgrade(type) {
   const def = Engine.registry?.upgrades?.[type];
-  if (!def) return false;                                   
+  if (!def) return false;
 
   const level = upgrades[type] | 0;
   const cost =
@@ -771,20 +771,30 @@ function buyUpgrade(type) {
       ? Math.max(0, def.cost(level))
       : Math.max(0, Number(def.cost) || 0);
 
-  if ((S.gold | 0) < cost) return false;                    
+  if ((S.gold | 0) < cost) return false;
 
+  // pay & level up
   S.gold -= cost;
   upgrades[type] = level + 1;
 
+  // ---- Recompute without double-apply and preserve HP ----
+  const prevHP = core.hp|0;
+
+  // Rebuild core from schema + all run upgrades
   core.applyUpgrades();
-  if (typeof def.apply === 'function') def.apply(core, upgrades[type]);
+
+  // Then apply permanents
   Engine.applyPermToCore(core);
+
+  // Keep current HP (clamped to new max). This prevents incidental healing.
+  core.hp = Math.min(prevHP, core.hpMax|0);
+
 
   saveGame();
   notifySubscribers(buildSnapshot());
   Engine.emit?.('upgrade:buy', { type, level: upgrades[type], cost });
 
-  return true;                                            
+  return true;
 }
 
 function buyPermanent(rowId) {
