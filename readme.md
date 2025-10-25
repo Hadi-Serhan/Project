@@ -98,7 +98,7 @@ window.engine.actions.hardReset()  // full wipe
 
 ## 6) How to mod 
 
- The default bundle is `mods/vanilla-pack.js`.
+ The default bundle is `mods/vanilla-pack.js`, but you can add more stuff in `mods/sample-mod.js`.
 
 ### 6.1 Add a run/permanent upgrade
 ```js
