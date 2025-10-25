@@ -390,7 +390,7 @@ Engine.registerAbility('overdrive', {
    MOD HOOKS (Frost slow + Overdrive tick)
 ----------------------------------------------------------------*/
 
-// Frost slow application (uses zone.slow if present)
+// Frost slow application
 Engine.addEnemyModifier((enemy) => {
   const frost = Engine.registry?.abilities?.frost;
   if (!frost?.enabled) return null;

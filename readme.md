@@ -62,14 +62,6 @@ On throw, expected damage is **reserved** on the target so other projectiles loo
 
 This keeps upgrades **data-first** and prevents stat drift.
 
-### 3.6 Overdrive snapshot (R)
-Overdrive **never reduces** your current DPS if you already stacked upgrades.  
-On cast, it **snapshots** current `damage` and `fireRate` (already upgraded & permanent-applied), then applies multipliers while active. When it ends, it **recomputes** from schema + upgrades + perms.
-
-### 3.7 Frost slow (W)
-Applies a movement **slow** within a zone; bosses get a **clamped/lesser slow** (anti-cheese cap).  
-Enemy modifiers are composable—any mod can return a `{ speedMul, atkMul }` adjustment.
-
 ---
 
 ## 4) Progression systems
